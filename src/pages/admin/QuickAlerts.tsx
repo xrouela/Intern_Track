@@ -21,7 +21,7 @@ export default function QuickAlerts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
-  const isAdmin = profile?.role === 'admin' || profile?.email === 'admin-internship@cp-360.com';
+  const isAdmin = profile?.role === 'admin' || profile?.email === 'admin-internship@test.com';
   const isManager = profile?.role === 'manager' || isAdmin;
 
   const fetchData = async () => {
@@ -31,10 +31,10 @@ export default function QuickAlerts() {
         api.getUsers(),
         api.getShifts(undefined, 'completed')
       ]);
-      
+
       setUsers(allUsers);
-      
-      const exceptions = allShifts.filter((s: any) => 
+
+      const exceptions = allShifts.filter((s: any) =>
         s.is_late || s.is_undertime || s.overtime_hours > 0 || s.is_incomplete
       ).map((s: any) => {
         let severity: AlertSeverity = 'info';
@@ -61,7 +61,7 @@ export default function QuickAlerts() {
 
         return { ...s, severity, alertTitle, interpretation };
       });
-      
+
       setAlerts(exceptions);
     } catch (err) {
       console.error('Failed to fetch alerts:', err);
@@ -100,12 +100,12 @@ export default function QuickAlerts() {
   const filteredAlerts = alerts.filter(alert => {
     const user = users.find(u => u.uid === alert.user_id);
     const matchesSearch = alert.user_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = filterType === 'all' || 
+    const matchesType = filterType === 'all' ||
       (filterType === 'late' && alert.is_late) ||
       (filterType === 'undertime' && alert.is_undertime) ||
       (filterType === 'overtime' && alert.overtime_hours > 0) ||
       (filterType === 'incomplete' && alert.is_incomplete);
-    
+
     const matchesSeverity = filterSeverity === 'all' || alert.severity === filterSeverity;
     const matchesDepartment = filterDepartment === 'all' || user?.department === filterDepartment;
     const matchesAction = !needsActionOnly || !alert.alert_status || alert.alert_status === 'new';
@@ -117,7 +117,7 @@ export default function QuickAlerts() {
       if (filterTimeRange === 'today') matchesTime = isToday(date);
       else if (filterTimeRange === 'week') matchesTime = date > subWeeks(now, 1);
     }
-    
+
     return matchesSearch && matchesType && matchesSeverity && matchesDepartment && matchesAction && matchesTime;
   });
 
@@ -145,8 +145,8 @@ export default function QuickAlerts() {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
             Quick Alerts
             {stats.critical > 0 && (
-              <motion.span 
-                animate={{ scale: [1, 1.1, 1] }} 
+              <motion.span
+                animate={{ scale: [1, 1.1, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
                 className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full"
               >
@@ -159,20 +159,20 @@ export default function QuickAlerts() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm">
           <div className="px-4 py-2 bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center justify-center min-w-[100px]">
-             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</span>
-             <span className="text-xl font-black text-slate-900">{stats.total}</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</span>
+            <span className="text-xl font-black text-slate-900">{stats.total}</span>
           </div>
           <div className="px-4 py-2 bg-red-50 rounded-xl border border-red-100 flex flex-col items-center justify-center min-w-[100px]">
-             <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">Critical</span>
-             <span className="text-xl font-black text-red-600">{stats.critical}</span>
+            <span className="text-[10px] font-black text-red-400 uppercase tracking-widest">Critical</span>
+            <span className="text-xl font-black text-red-600">{stats.critical}</span>
           </div>
           <div className="px-4 py-2 bg-orange-50 rounded-xl border border-orange-100 flex flex-col items-center justify-center min-w-[100px]">
-             <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Warning</span>
-             <span className="text-xl font-black text-orange-600">{stats.warning}</span>
+            <span className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Warning</span>
+            <span className="text-xl font-black text-orange-600">{stats.warning}</span>
           </div>
           <div className="px-4 py-2 bg-blue-50 rounded-xl border border-blue-100 flex flex-col items-center justify-center min-w-[100px]">
-             <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Minor</span>
-             <span className="text-xl font-black text-blue-600">{stats.info}</span>
+            <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Minor</span>
+            <span className="text-xl font-black text-blue-600">{stats.info}</span>
           </div>
         </div>
       </div>
@@ -182,7 +182,7 @@ export default function QuickAlerts() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
           <div className="lg:col-span-2 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
+            <input
               type="text"
               placeholder="Search member name..."
               value={searchTerm}
@@ -192,7 +192,7 @@ export default function QuickAlerts() {
           </div>
 
           <div className="relative">
-            <select 
+            <select
               value={filterSeverity}
               onChange={(e) => setFilterSeverity(e.target.value)}
               className="w-full pl-3 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold uppercase tracking-wider outline-none appearance-none cursor-pointer"
@@ -206,7 +206,7 @@ export default function QuickAlerts() {
           </div>
 
           <div className="relative">
-            <select 
+            <select
               value={filterDepartment}
               onChange={(e) => setFilterDepartment(e.target.value)}
               className="w-full pl-3 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold uppercase tracking-wider outline-none appearance-none cursor-pointer"
@@ -220,7 +220,7 @@ export default function QuickAlerts() {
           </div>
 
           <div className="relative">
-            <select 
+            <select
               value={filterTimeRange}
               onChange={(e) => setFilterTimeRange(e.target.value)}
               className="w-full pl-3 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold uppercase tracking-wider outline-none appearance-none cursor-pointer"
@@ -232,13 +232,12 @@ export default function QuickAlerts() {
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
           </div>
 
-          <button 
+          <button
             onClick={() => setNeedsActionOnly(!needsActionOnly)}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all border ${
-              needsActionOnly 
-              ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200' 
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all border ${needsActionOnly
+              ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-200'
               : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-            }`}
+              }`}
           >
             {needsActionOnly ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
             Needs Action
@@ -255,7 +254,7 @@ export default function QuickAlerts() {
 
           return (
             <div key={date} className="space-y-4">
-              <button 
+              <button
                 onClick={() => setExpandedGroups({ ...expandedGroups, [date]: !isExpanded })}
                 className="flex items-center gap-3 w-full group"
               >
@@ -269,7 +268,7 @@ export default function QuickAlerts() {
 
               <AnimatePresence>
                 {isExpanded && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
@@ -286,32 +285,28 @@ export default function QuickAlerts() {
                         <motion.div
                           layout
                           key={alert.id}
-                          className={`group relative flex flex-col md:flex-row md:items-center p-4 gap-4 transition-all hover:bg-slate-50/80 ${
-                            isResolved ? 'opacity-60' : ''
-                          }`}
+                          className={`group relative flex flex-col md:flex-row md:items-center p-4 gap-4 transition-all hover:bg-slate-50/80 ${isResolved ? 'opacity-60' : ''
+                            }`}
                         >
                           {/* Severity Indicator Strip */}
-                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${
-                            isCritical ? 'bg-red-500' : 
+                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${isCritical ? 'bg-red-500' :
                             alert.severity === 'warning' ? 'bg-orange-500' : 'bg-blue-500'
-                          }`} />
+                            }`} />
 
                           {/* 1. Severity Icon & Headline */}
                           <div className="flex items-center gap-3 md:w-1/4 min-w-[200px]">
-                            <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-                              isCritical ? 'bg-red-50 text-red-600' : 
+                            <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${isCritical ? 'bg-red-50 text-red-600' :
                               alert.severity === 'warning' ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'
-                            }`}>
+                              }`}>
                               {isCritical ? <AlertTriangle size={16} /> : <Info size={16} />}
                             </div>
                             <div className="flex flex-col">
-                              <span className={`text-sm font-black tracking-tight ${
-                                isCritical ? 'text-red-600' : 
+                              <span className={`text-sm font-black tracking-tight ${isCritical ? 'text-red-600' :
                                 alert.severity === 'warning' ? 'text-orange-600' : 'text-blue-600'
-                              }`}>
-                                {alert.overtime_hours > 0 ? `+${alert.overtime_hours.toFixed(1)}h Overtime` : 
-                                 alert.is_late ? 'Late Clock-in' : 
-                                 alert.is_undertime ? 'Undertime Exception' : 'Shift Alert'}
+                                }`}>
+                                {alert.overtime_hours > 0 ? `+${alert.overtime_hours.toFixed(1)}h Overtime` :
+                                  alert.is_late ? 'Late Clock-in' :
+                                    alert.is_undertime ? 'Undertime Exception' : 'Shift Alert'}
                               </span>
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-0.5">
                                 {alert.alertTitle}
@@ -338,11 +333,11 @@ export default function QuickAlerts() {
 
                           {/* 3. Detail Interpretation */}
                           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 flex-grow">
-                          <div className="flex items-center gap-2 text-xs font-mono font-bold text-slate-500 bg-slate-100/50 px-2 py-1 rounded-md border border-slate-100/50 min-w-[120px] justify-center">
-                            <span className="text-emerald-600">{alert.clock_in ? format(parseUTCDate(alert.clock_in), 'HH:mm') : '--:--'}</span>
-                            <ChevronRight size={10} className="text-slate-300" />
-                            <span>{alert.clock_out ? format(parseUTCDate(alert.clock_out), 'HH:mm') : '--:--'}</span>
-                          </div>
+                            <div className="flex items-center gap-2 text-xs font-mono font-bold text-slate-500 bg-slate-100/50 px-2 py-1 rounded-md border border-slate-100/50 min-w-[120px] justify-center">
+                              <span className="text-emerald-600">{alert.clock_in ? format(parseUTCDate(alert.clock_in), 'HH:mm') : '--:--'}</span>
+                              <ChevronRight size={10} className="text-slate-300" />
+                              <span>{alert.clock_out ? format(parseUTCDate(alert.clock_out), 'HH:mm') : '--:--'}</span>
+                            </div>
                             <p className="text-xs font-bold text-slate-600 flex items-center gap-1.5 min-w-[150px]">
                               <Clock size={12} className="text-slate-400" />
                               {alert.interpretation}
@@ -351,19 +346,18 @@ export default function QuickAlerts() {
 
                           {/* 4. Status Pill */}
                           <div className="flex items-center justify-end md:w-32">
-                             <div className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                               isResolved ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                               isFlagged ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                               'bg-slate-50 text-slate-400 border-slate-100'
-                             }`}>
-                               {isResolved ? 'Resolved' : isFlagged ? 'Flagged' : 'Pending'}
-                             </div>
+                            <div className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${isResolved ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                              isFlagged ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                'bg-slate-50 text-slate-400 border-slate-100'
+                              }`}>
+                              {isResolved ? 'Resolved' : isFlagged ? 'Flagged' : 'Pending'}
+                            </div>
                           </div>
 
                           {/* 5. Row Actions (Hover-reveal) */}
                           <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all ml-4">
                             {!isResolved && (
-                              <button 
+                              <button
                                 onClick={() => handleAction(alert.id, 'approve')}
                                 className="p-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm transition-colors"
                                 title="Approve"
@@ -372,7 +366,7 @@ export default function QuickAlerts() {
                               </button>
                             )}
                             {!isFlagged && (
-                              <button 
+                              <button
                                 onClick={() => handleAction(alert.id, 'flag')}
                                 className="p-2 rounded-xl bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors"
                                 title="Flag for Review"
@@ -380,7 +374,7 @@ export default function QuickAlerts() {
                                 <Flag size={14} />
                               </button>
                             )}
-                            <button 
+                            <button
                               className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
                               title="View Details"
                             >
@@ -398,7 +392,7 @@ export default function QuickAlerts() {
         })}
 
         {dates.length === 0 && !loading && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="flex flex-col items-center justify-center py-32 text-center bg-white rounded-[40px] border border-dashed border-slate-200"

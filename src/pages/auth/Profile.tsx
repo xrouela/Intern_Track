@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { User, Mail, Shield, Award, Calendar, CheckSquare, Clock, Edit2, X, Save } from 'lucide-react';
+import { User, Mail, Shield, Award, Calendar, CheckSquare, Clock, Edit2, X, Save, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../services/apiService';
 
@@ -10,6 +10,16 @@ export default function Profile() {
   const [totalHours, setTotalHours] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
+
+  // Change password state
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
 
   useEffect(() => {
     if (profile) setEditedName(profile.name);
@@ -27,6 +37,36 @@ export default function Profile() {
       setIsEditing(false);
     } catch (err) {
       console.error('Failed to update profile:', err);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwError(null);
+    setPwSuccess(false);
+
+    if (newPw.length < 8) {
+      setPwError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwError('New passwords do not match.');
+      return;
+    }
+    if (!profile) return;
+
+    setPwLoading(true);
+    try {
+      await api.changePassword(profile.uid, currentPw, newPw);
+      setPwSuccess(true);
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+      await refreshProfile();
+    } catch (err: any) {
+      setPwError(err.message || 'Failed to change password.');
+    } finally {
+      setPwLoading(false);
     }
   };
 
@@ -185,61 +225,191 @@ export default function Profile() {
       </AnimatePresence>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* Change Password Card */}
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-            <Shield size={20} className="text-indigo-600" /> Security
+            <Lock size={20} className="text-indigo-600" /> Change Password
           </h3>
-          <div className="space-y-4">
-            <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="font-medium text-slate-900">Google Account</p>
-                <p className="text-sm text-slate-500">Authentication linked via Google</p>
+
+          <AnimatePresence>
+            {pwError && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl flex items-start gap-2 text-red-600 text-sm overflow-hidden"
+              >
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                <p className="text-xs font-medium">{pwError}</p>
+              </motion.div>
+            )}
+            {pwSuccess && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-2 text-emerald-600 text-sm overflow-hidden"
+              >
+                <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                <p className="text-xs font-medium">Password updated successfully!</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            {/* Current Password */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Current Password</label>
+              <div className="relative">
+                <input
+                  type={showCurrentPw ? 'text' : 'password'}
+                  value={currentPw}
+                  onChange={(e) => { setCurrentPw(e.target.value); setPwError(null); setPwSuccess(false); }}
+                  required
+                  disabled={pwLoading}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none pr-10 text-sm"
+                  placeholder="Enter current password"
+                />
+                <button type="button" onClick={() => setShowCurrentPw(!showCurrentPw)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">
+                  {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
-              <div className="text-emerald-500 font-bold text-xs uppercase">Connected</div>
             </div>
-            <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="font-medium text-slate-900">Role Permissions</p>
-                <p className="text-sm text-slate-500">Limited to {profile?.role} functions</p>
+
+            {/* New Password */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">New Password</label>
+              <div className="relative">
+                <input
+                  type={showNewPw ? 'text' : 'password'}
+                  value={newPw}
+                  onChange={(e) => { setNewPw(e.target.value); setPwError(null); setPwSuccess(false); }}
+                  required
+                  minLength={8}
+                  disabled={pwLoading}
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none pr-10 text-sm"
+                  placeholder="Minimum 8 characters"
+                />
+                <button type="button" onClick={() => setShowNewPw(!showNewPw)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600">
+                  {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
-              <div className="text-indigo-500 font-bold text-xs uppercase">Managed</div>
             </div>
-          </div>
+
+            {/* Confirm Password */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPw}
+                onChange={(e) => { setConfirmPw(e.target.value); setPwError(null); }}
+                required
+                minLength={8}
+                disabled={pwLoading}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none text-sm"
+                placeholder="Re-enter new password"
+              />
+            </div>
+
+            {/* Hints */}
+            <div className="space-y-1">
+              <p className={`text-[11px] flex items-center gap-1.5 ${newPw.length >= 8 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${newPw.length >= 8 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                At least 8 characters
+              </p>
+              <p className={`text-[11px] flex items-center gap-1.5 ${newPw && confirmPw && newPw === confirmPw ? 'text-emerald-600' : 'text-slate-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${newPw && confirmPw && newPw === confirmPw ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                Passwords match
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={pwLoading || newPw.length < 8 || newPw !== confirmPw}
+              className={`w-full flex items-center justify-center gap-2 font-bold py-2.5 rounded-xl transition ${pwLoading || newPw.length < 8 || newPw !== confirmPw ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-primary text-white hover:bg-blue-700'}`}
+            >
+              <Lock size={16} />
+              {pwLoading ? 'Updating...' : 'Update Password'}
+            </button>
+          </form>
         </div>
 
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-            <Calendar size={20} className="text-indigo-600" /> Internship Timeline
-          </h3>
-          <div className="space-y-4">
-             <div className="flex justify-between py-2 border-b border-slate-50">
-               <span className="text-slate-500">Starting Date</span>
-               <span className="font-medium text-slate-900">{profile?.start_date || 'Not specified'}</span>
-             </div>
-             <div className="flex justify-between py-2 border-b border-slate-50">
-               <span className="text-slate-500">End Date</span>
-               <span className="font-medium text-slate-900">{profile?.end_date || 'Not specified'}</span>
-             </div>
-             <div className="flex justify-between py-2 border-b border-slate-50">
-               <span className="text-slate-500">Internship Rank</span>
-               <span className="font-medium text-slate-900 capitalize">{profile?.role}</span>
-             </div>
-             {profile?.role === 'intern' && (
+        {/* Security & Account Info */}
+        <div className="space-y-8">
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+              <Shield size={20} className="text-indigo-600" /> Security
+            </h3>
+            <div className="space-y-4">
+              <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-slate-900">Password Status</p>
+                  <p className="text-sm text-slate-500">
+                    {profile?.is_default_password ? 'Using default password' : 'Custom password set'}
+                  </p>
+                </div>
+                {profile?.is_default_password ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-100">
+                    <KeyRound size={12} /> Default
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
+                    <CheckCircle2 size={12} /> Secure
+                  </span>
+                )}
+              </div>
+              <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-slate-900">Role Permissions</p>
+                  <p className="text-sm text-slate-500">Limited to {profile?.role} functions</p>
+                </div>
+                <div className="text-indigo-500 font-bold text-xs uppercase">Managed</div>
+              </div>
+              {profile?.username && (
+                <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-slate-900">Username</p>
+                    <p className="text-sm text-slate-500 font-mono">{profile.username}</p>
+                  </div>
+                  <div className="text-slate-400 font-bold text-xs uppercase">Login ID</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+            <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+              <Calendar size={20} className="text-indigo-600" /> Internship Timeline
+            </h3>
+            <div className="space-y-4">
                <div className="flex justify-between py-2 border-b border-slate-50">
-                 <span className="text-slate-500">Working Schedule</span>
-                 <span className="font-medium text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg text-xs font-bold">
-                   {profile.schedule_start || '08:00'} - {profile.schedule_end || '17:00'}
-                 </span>
+                 <span className="text-slate-500">Starting Date</span>
+                 <span className="font-medium text-slate-900">{profile?.start_date || 'Not specified'}</span>
                </div>
-             )}
-             <div className="flex justify-between py-2">
-               <span className="text-slate-500">Database ID</span>
-               <span className="font-mono text-[10px] text-slate-400">{profile?.uid}</span>
-             </div>
+               <div className="flex justify-between py-2 border-b border-slate-50">
+                 <span className="text-slate-500">End Date</span>
+                 <span className="font-medium text-slate-900">{profile?.end_date || 'Not specified'}</span>
+               </div>
+               <div className="flex justify-between py-2 border-b border-slate-50">
+                 <span className="text-slate-500">Internship Rank</span>
+                 <span className="font-medium text-slate-900 capitalize">{profile?.role}</span>
+               </div>
+               {profile?.role === 'intern' && (
+                 <div className="flex justify-between py-2 border-b border-slate-50">
+                   <span className="text-slate-500">Working Schedule</span>
+                   <span className="font-medium text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg text-xs font-bold">
+                     {profile.schedule_start || '08:00'} - {profile.schedule_end || '17:00'}
+                   </span>
+                 </div>
+               )}
+               <div className="flex justify-between py-2">
+                 <span className="text-slate-500">Database ID</span>
+                 <span className="font-mono text-[10px] text-slate-400">{profile?.uid}</span>
+               </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
-

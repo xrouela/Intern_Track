@@ -31,7 +31,7 @@ export default function Reports() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const fetchData = async () => {
-    if (!profile || (profile.role !== 'admin' && profile.role !== 'superadmin' && profile.role !== 'manager')) return;
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'manager')) return;
     try {
       const [allUsers, allShifts] = await Promise.all([
         api.getUsers(),

@@ -5,6 +5,8 @@ interface UserProfile {
   uid: string;
   email: string;
   name: string;
+  username?: string;
+  employee_id?: string;
   role: 'admin' | 'manager' | 'intern';
   photoURL?: string;
   manually_added?: boolean;
@@ -12,7 +14,10 @@ interface UserProfile {
   start_date?: string;
   end_date?: string;
   required_hours?: number;
+  schedule_start?: string;
+  schedule_end?: string;
   active_task?: any;
+  is_default_password?: boolean;
 }
 
 interface AuthContextType {

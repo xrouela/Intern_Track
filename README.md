@@ -34,7 +34,7 @@ Launch the backend and frontend simultaneously:
 npm run dev
 ```
 > [!TIP]
-> **Windows Users**: If you get a "SecurityError", use `npm.cmd run dev` or `cmd /c "npm run dev"`.
+> **Windows Users**: If you get a "SecurityError", use `npm run dev` or `npm.cmd run dev`.
 
 ### 5. Access the System
 Once started, open your browser to:

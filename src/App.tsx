@@ -30,7 +30,7 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
   if (!user) return <Navigate to="/login" />;
   
   if (roles && profile) {
-    const hasAccess = roles.includes(profile.role) || (profile.role === 'superadmin' && roles.includes('admin'));
+    const hasAccess = roles.includes(profile.role) || (profile.role === 'admin' && roles.includes('manager'));
     if (!hasAccess) return <Navigate to="/" />;
   }
 
@@ -39,7 +39,7 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
 
 function Home() {
   const { profile } = useAuth();
-  if (profile?.role === 'admin' || profile?.role === 'superadmin' || profile?.role === 'manager') {
+  if (profile?.role === 'admin' || profile?.role === 'manager') {
     return <Navigate to="/admin" replace />;
   }
   return <Dashboard />;

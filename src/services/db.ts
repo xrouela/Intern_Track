@@ -4,11 +4,12 @@ import path from 'path';
 const db = knex({
   client: 'mysql2',
   connection: {
-    host: '127.0.0.1',
-    user: 'root',
-    password: '', // Default XAMPP password is empty
-    database: 'intern_track'
-  }
+  host: '127.0.0.1',
+  user: 'root',
+  password: '',
+  database: 'intern_track',
+  timezone: '+08:00'
+}
 });
 
 export async function initDb() {
@@ -18,6 +19,10 @@ export async function initDb() {
       table.string('uid').primary();
       table.string('name').notNullable();
       table.string('email').notNullable().unique();
+      table.string('username').unique().nullable();
+      table.string('employee_id').nullable();
+      table.string('password', 255); // bcrypt hash
+      table.boolean('is_default_password').defaultTo(true);
       table.string('role').notNullable();
       table.string('department');
       table.string('photoURL');
@@ -27,6 +32,35 @@ export async function initDb() {
       table.string('schedule_start');
       table.string('schedule_end');
       table.json('active_task');
+      table.timestamps(true, true);
+    });
+  } else {
+    // Migrations: add columns to existing tables that don't have them
+    const migrations: Array<{ col: string; add: (t: any) => void }> = [
+      { col: 'password', add: (t) => t.string('password', 255).nullable() },
+      { col: 'username', add: (t) => t.string('username').nullable() },
+      { col: 'employee_id', add: (t) => t.string('employee_id').nullable() },
+      { col: 'is_default_password', add: (t) => t.boolean('is_default_password').defaultTo(true) },
+    ];
+    for (const m of migrations) {
+      const exists = await db.schema.hasColumn('users', m.col);
+      if (!exists) {
+        await db.schema.table('users', m.add);
+      }
+    }
+  }
+
+  // Audit logs table
+  const hasAuditLogs = await db.schema.hasTable('audit_logs');
+  if (!hasAuditLogs) {
+    await db.schema.createTable('audit_logs', (table) => {
+      table.increments('id').primary();
+      table.string('action').notNullable(); // e.g. PASSWORD_RESET
+      table.string('performed_by'); // uid of admin
+      table.string('performed_by_name');
+      table.string('target_user'); // uid of target
+      table.string('target_user_name');
+      table.text('details').nullable();
       table.timestamps(true, true);
     });
   }
@@ -54,8 +88,8 @@ export async function initDb() {
       table.increments('id').primary();
       table.string('user_id').references('users.uid');
       table.string('user_name');
-      table.timestamp('clock_in').nullable();
-      table.timestamp('clock_out').nullable();
+      table.dateTime('clock_in').nullable();
+      table.dateTime('clock_out').nullable();
       table.string('status');
       table.float('total_hours');
       table.float('overtime_hours');
@@ -71,6 +105,12 @@ export async function initDb() {
       table.json('edit_history');
       table.timestamps(true, true);
     });
+  } else {
+    try {
+      await db.raw('ALTER TABLE shifts MODIFY clock_in DATETIME NULL, MODIFY clock_out DATETIME NULL');
+    } catch (err) {
+      console.warn('Could not update shifts clock columns to DATETIME:', err);
+    }
   }
 
   const hasLogs = await db.schema.hasTable('time_logs');
@@ -158,3 +198,5 @@ export async function initDb() {
 }
 
 export default db;
+
+

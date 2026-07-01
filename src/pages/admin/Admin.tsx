@@ -15,7 +15,7 @@ export default function Admin() {
   const [exceptionsCount, setExceptionsCount] = useState(0);
 
   const fetchData = async () => {
-    if (!profile || (profile.role !== 'admin' && profile.role !== 'superadmin' && profile.role !== 'manager')) return;
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'manager')) return;
     try {
       const [allUsers, allShifts] = await Promise.all([
         api.getUsers(),

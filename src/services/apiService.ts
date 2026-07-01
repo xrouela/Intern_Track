@@ -17,6 +17,39 @@ export const api = {
     return res.json();
   },
 
+  // Password Management
+  resetPassword: async (uid: string, performedBy: string) => {
+    const res = await fetch(`/api/users/${uid}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ performed_by: performedBy }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to reset password');
+    }
+    return res.json();
+  },
+
+  changePassword: async (uid: string, currentPassword: string, newPassword: string) => {
+    const res = await fetch(`/api/users/${uid}/change-password`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to change password');
+    }
+    return res.json();
+  },
+
+  getAuditLogs: async () => {
+    const res = await fetch('/api/audit-logs');
+    if (!res.ok) throw new Error('Failed to fetch audit logs');
+    return res.json();
+  },
+
   // Users
   getUsers: async () => {
     const res = await fetch('/api/users');
@@ -35,6 +68,18 @@ export const api = {
       body: JSON.stringify(user),
     });
     if (!res.ok) throw new Error('Failed to save user');
+    return res.json();
+  },
+  deleteUser: async (uid: string, performedBy: string) => {
+    const res = await fetch(`/api/users/${uid}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ performed_by: performedBy })
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to delete user');
+    }
     return res.json();
   },
 

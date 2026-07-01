@@ -34,7 +34,7 @@ export default function Layout() {
 
   // Poll pending request count for admins/managers
   const fetchCount = async () => {
-    const isAlt = profile?.role === 'admin' || profile?.role === 'superadmin' || profile?.role === 'manager';
+    const isAlt = profile?.role === 'admin' || profile?.role === 'manager';
     if (!isAlt) return;
     try {
       const { api } = await import('../services/apiService');
@@ -54,7 +54,7 @@ export default function Layout() {
     navigate('/login');
   };
 
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'superadmin';
+  const isAdmin = profile?.role === 'admin';
   const isManager = profile?.role === 'manager';
   const isAlt = isAdmin || isManager;
 
@@ -122,8 +122,8 @@ export default function Layout() {
 
             <nav className="flex-grow p-3 space-y-6 overflow-y-auto custom-scrollbar">
               {menuGroups.map((group, idx) => {
-                if (group.roles && (!profile || (!group.roles.includes(profile.role) && !(profile.role === 'superadmin' && group.roles.includes('admin'))))) return null;
-                const visibleItems = group.items.filter(item => !item.roles || (profile && (item.roles.includes(profile.role) || (profile.role === 'superadmin' && item.roles.includes('admin')))));
+                if (group.roles && (!profile || (!group.roles.includes(profile.role) && !(profile.role === 'admin' && group.roles.includes('manager'))))) return null;
+                const visibleItems = group.items.filter(item => !item.roles || (profile && (item.roles.includes(profile.role) || (profile.role === 'admin' && item.roles.includes('manager')))));
                 if (visibleItems.length === 0) return null;
 
                 return (

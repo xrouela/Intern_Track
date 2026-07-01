@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { api } from '../services/apiService';
 import { useAuth } from '../context/AuthContext';
-import { calculateAttendance } from '../utils/attendanceUtils';
+
+
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { parseUTCDate, formatDuration } from '../utils/dateUtils';
+import { calculateAttendance } from '../utils/attendanceUtils';
 import {
   Users,
   CheckCircle2,
@@ -17,7 +19,7 @@ import {
   Timer,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format, differenceInMinutes } from 'date-fns';
+import { format } from 'date-fns';
 
 export default function Dashboard() {
   const { profile, refreshProfile } = useAuth();
@@ -30,22 +32,124 @@ export default function Dashboard() {
 
   const [now, setNow] = useState(new Date());
 
+  const formatScheduleTime = (time?: string | null) => {
+    if (!time) return '--:--';
+    const [hours = 0, minutes = 0] = time.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+
+    return new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date);
+  };
+
+  // ======================
+  // Shift Timestamp Normalization
+  // ======================
+  const normalizeShiftTime = (dateInput: Date | string | null | undefined) => {
+    if (!dateInput) return null;
+
+    const date = typeof dateInput === 'string'
+      ? parseUTCDate(dateInput)
+      : new Date(dateInput);
+
+    if (profile?.schedule_start) {
+      const [schedHours = 0, schedMins = 0] = profile.schedule_start.split(':').map(Number);
+      const scheduled = new Date(date);
+      scheduled.setHours(schedHours, schedMins, 0, 0);
+      const minutesFromSchedule = (date.getTime() - scheduled.getTime()) / 60000;
+
+      if (minutesFromSchedule < -120) {
+        const corrected = new Date(date);
+        corrected.setHours(corrected.getHours() + 8);
+        return corrected;
+      }
+    }
+
+    return date;
+  };
+
   // ======================
   // Manila Time Formatter (Reusable)
   // ======================
   const formatManilaTime = (dateInput: Date | string | null | undefined) => {
-    if (!dateInput) return '--:--';
-
-    const date = typeof dateInput === 'string'
-      ? parseUTCDate(dateInput)
-      : dateInput;
+    const date = normalizeShiftTime(dateInput);
+    if (!date) return '--:--';
 
     return new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Manila',
       hour: 'numeric',
       minute: '2-digit',
+      second: '2-digit',
       hour12: true
     }).format(date);
+  };
+
+  const getScheduleBounds = () => {
+    if (!profile?.schedule_start || !profile?.schedule_end) return null;
+    const [startHours = 0, startMins = 0] = profile.schedule_start.split(':').map(Number);
+    const [endHours = 0, endMins = 0] = profile.schedule_end.split(':').map(Number);
+    const start = new Date();
+    start.setHours(startHours, startMins, 0, 0);
+    const end = new Date();
+    end.setHours(endHours, endMins, 0, 0);
+    return {
+      start,
+      end,
+      durationHours: Math.max(0, (end.getTime() - start.getTime()) / 3600000),
+    };
+  };
+
+  const getShiftStatus = (shift: any) => {
+    const clockIn = normalizeShiftTime(shift.clock_in);
+    const clockOut = shift.clock_out ? normalizeShiftTime(shift.clock_out) : null;
+    const bounds = getScheduleBounds();
+    const defaultStatus = { label: 'On time', classes: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+    if (!bounds || !clockIn) return defaultStatus;
+
+    const startedLate = clockIn.getTime() > bounds.start.getTime();
+    const endedEarly = clockOut ? clockOut.getTime() < bounds.end.getTime() : false;
+    const totalHours = clockOut ? (clockOut.getTime() - clockIn.getTime()) / 3600000 : 0;
+    const exceeded = clockOut ? totalHours > bounds.durationHours : false;
+
+    if (exceeded) return { label: 'Overtime', classes: 'bg-blue-50 text-blue-700 border-blue-100' };
+    if (endedEarly) return { label: 'Undertime', classes: 'bg-orange-50 text-orange-700 border-orange-100' };
+    if (startedLate) return { label: 'Late', classes: 'bg-red-50 text-red-700 border-red-100' };
+    return defaultStatus;
+  };
+
+  const formatLateDuration = (shift: any) => {
+    const clockIn = normalizeShiftTime(shift.clock_in);
+    const bounds = getScheduleBounds();
+    if (!bounds || !clockIn) return '0 min';
+
+    const lateMinutes = Math.max(0, Math.round((clockIn.getTime() - bounds.start.getTime()) / 60000));
+    if (lateMinutes === 0) return '0 min';
+    if (lateMinutes < 60) return `${lateMinutes} min`;
+    return `${(lateMinutes / 60).toFixed(1)} hrs`;
+  };
+
+  const formatShiftDuration = (shift: any) => {
+    if (!shift.clock_in || !shift.clock_out) return '0.0 hrs';
+
+    const clockIn = normalizeShiftTime(shift.clock_in);
+    const clockOut = normalizeShiftTime(shift.clock_out);
+    if (!clockIn || !clockOut) return '0.0 hrs';
+
+    const seconds = Math.max(0, Math.round((clockOut.getTime() - clockIn.getTime()) / 1000));
+
+    if (seconds < 60) {
+      return `${seconds} sec`;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+
+    return `${(seconds / 3600).toFixed(1)} hrs`;
   };
 
   // Unified Real-Time Ticker (Updates once per second)
@@ -106,8 +210,8 @@ export default function Dashboard() {
       const schedDate = new Date();
       schedDate.setHours(schedHours, schedMins, 0, 0);
 
-      // 5-minute grace period
-      if (clockInTime.getTime() > schedDate.getTime() + 5 * 60 * 1000) {
+      // Any time after scheduled start is considered late
+      if (clockInTime.getTime() > schedDate.getTime()) {
         isLate = true;
       }
     }
@@ -146,24 +250,37 @@ export default function Dashboard() {
       const clockOutTime = new Date();
       const clockInTime = parseUTCDate(activeShift.clock_in); // ← Now correctly parsed
 
-      const metrics = calculateAttendance(clockInTime, clockOutTime);
+      calculateAttendance(clockInTime, clockOutTime);
 
       let isUndertime = false;
-      if (profile.schedule_end) {
-        const [schedHours, schedMins] = profile.schedule_end.split(':').map(Number);
-        const schedTime = new Date();
-        schedTime.setHours(schedHours, schedMins, 0, 0);
+      let scheduledDuration = 8;
+      if (profile.schedule_start && profile.schedule_end) {
+        const [startHours, startMins] = profile.schedule_start.split(':').map(Number);
+        const [endHours, endMins] = profile.schedule_end.split(':').map(Number);
+        const scheduledStart = new Date();
+        const scheduledEnd = new Date();
+        scheduledStart.setHours(startHours, startMins, 0, 0);
+        scheduledEnd.setHours(endHours, endMins, 0, 0);
+        scheduledDuration = Math.max(0, (scheduledEnd.getTime() - scheduledStart.getTime()) / 3600000);
 
-        if (clockOutTime.getTime() < schedTime.getTime() - 5 * 60 * 1000) {
+        if (clockOutTime.getTime() < scheduledEnd.getTime()) {
           isUndertime = true;
         }
       }
 
+      const recalculatedHours = Number(
+        (
+          (clockOutTime.getTime() - clockInTime.getTime()) /
+          3600000
+        ).toFixed(2)
+      );
+
       await api.updateShift(activeShift.id, {
         clock_out: clockOutTime.toISOString(),
         status: 'completed',
-        ...metrics,
-        is_overtime: metrics.overtime_hours > 0,
+        total_hours: recalculatedHours,
+        overtime_hours: Math.max(recalculatedHours - scheduledDuration, 0),
+        is_overtime: recalculatedHours > scheduledDuration,
         is_undertime: isUndertime,
       });
 
@@ -185,6 +302,31 @@ export default function Dashboard() {
     second: '2-digit',
     hour12: true
   }).format(now);
+
+  const getActualClockIn = () => {
+    if (!activeShift?.clock_in) return null;
+    return normalizeShiftTime(activeShift.clock_in);
+  };
+
+  const actualClockIn = getActualClockIn();
+  const activeShiftStatus = activeShift ? getShiftStatus(activeShift) : null;
+  const scheduleStartLabel = formatScheduleTime(profile?.schedule_start || '09:00');
+  const scheduleEndLabel = formatScheduleTime(
+    profile?.schedule_start === '09:00' && profile?.schedule_end === '18:00'
+      ? '17:00'
+      : profile?.schedule_end || '17:00'
+  );
+  const clockInStatus = (() => {
+    if (!actualClockIn || !profile?.schedule_start) return null;
+    const [schedHours = 0, schedMins = 0] = profile.schedule_start.split(':').map(Number);
+    const scheduledClockIn = new Date(actualClockIn);
+    scheduledClockIn.setHours(schedHours, schedMins, 0, 0);
+    const lateMinutes = Math.max(0, Math.floor((actualClockIn.getTime() - scheduledClockIn.getTime()) / 60000));
+
+    return lateMinutes > 0
+      ? `Late by ${lateMinutes} minute${lateMinutes === 1 ? '' : 's'}`
+      : 'On time';
+  })();
 
   // 2. Shift Elapsed Time (In Seconds for formatting, in Hours for stats)
   const shiftDiffSeconds = activeShift?.clock_in ? (now.getTime() - parseUTCDate(activeShift.clock_in).getTime()) / 1000 : 0;
@@ -218,7 +360,13 @@ export default function Dashboard() {
       s.id !== activeShift?.id &&      // must not be the active shift
       s.clock_out !== null             // must have a clock_out
     )
-    .reduce((acc, shift) => acc + (shift.total_hours || 0), 0);
+    .reduce((acc, shift) => {
+      if (!shift.clock_in || !shift.clock_out) return acc;
+      const hrs =
+        (new Date(shift.clock_out).getTime() - new Date(shift.clock_in).getTime()) /
+        3600000;
+      return acc + Math.max(0, hrs);
+    }, 0);
 
   const totalHours = manualHours + completedShiftHours;
 
@@ -294,9 +442,14 @@ export default function Dashboard() {
               </div>
               <p className="text-sm text-slate-500 font-medium">
                 Schedule Today: <span className="underline decoration-slate-300 underline-offset-4">
-                  {profile?.schedule_start || '10PM'} - {profile?.schedule_end || '7AM'}
+                  {scheduleStartLabel} - {scheduleEndLabel}
                 </span>
               </p>
+              {activeShiftStatus && (
+                <div className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${activeShiftStatus.classes}`}>
+                  Status: {activeShiftStatus.label}
+                </div>
+              )}
             </div>
 
             <div className="w-full space-y-3 mt-6">
@@ -328,7 +481,8 @@ export default function Dashboard() {
               {activeShift && activeShift.clock_in && (
                 <div className="pt-1 flex items-center justify-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                   <Clock size={10} className="text-primary" />
-                  Clocked In at {formatManilaTime(activeShift.clock_in)}
+                  Clocked In at {actualClockIn ? formatManilaTime(actualClockIn) : '--:--'}
+                  {clockInStatus && <span className={clockInStatus === 'On time' ? 'text-emerald-500' : 'text-red-500'}>- {clockInStatus}</span>}
                 </div>
               )}
             </div>
@@ -567,45 +721,52 @@ export default function Dashboard() {
           {/* Shift Attendance Summary (Intern Only) */}
           {profile?.role === 'intern' && (
             <div className="bg-white rounded-[12px] border border-border-theme flex flex-col overflow-hidden">
-              <div className="px-5 py-4 border-b border-border-theme flex justify-between items-center bg-slate-50/50">
+              <div className="px-5 py-4 border-b border-border-theme flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 bg-slate-50/50">
                 <h3 className="text-[16px] font-semibold text-text-main">Recent Attendance</h3>
-                <div className="flex gap-2">
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-red-500" /> Late
-                  </span>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500" /> Undertime
-                  </span>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-slate-400">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500" /> Overtime
-                  </span>
-                </div>
+                <p className="text-[11px] text-slate-500 font-medium">Your latest completed clock-in records</p>
               </div>
               <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {allShifts.filter(s => s.status === 'completed').slice(-6).reverse().map((shift, idx) => (
-                  <div key={idx} className="p-3 border border-slate-100 rounded-xl bg-white shadow-sm flex flex-col gap-1 relative overflow-hidden">
-                    {shift.is_late && <div className="absolute top-0 right-0 w-8 h-8 bg-red-500 transform rotate-45 translate-x-5 -translate-y-5" title="Late" />}
+                {allShifts.filter(s => s.status === 'completed').slice(-6).reverse().map((shift, idx) => {
+                  const primaryStatus = getShiftStatus(shift);
 
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                      {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'EEE, MMM d') : '...'}
-                    </p>
+                  return (
+                    <div key={idx} className="p-4 border border-slate-100 rounded-xl bg-white shadow-sm flex flex-col gap-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Date</p>
+                          <p className="text-sm font-bold text-slate-800">
+                            {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'EEE, MMM d') : 'No date'}
+                          </p>
+                        </div>
+                        <span className={"shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide " + primaryStatus.classes}>
+                          {primaryStatus.label}
+                        </span>
+                      </div>
 
-                    <div className="flex justify-between items-end">
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700">
-                          {shift.clock_in ? formatManilaTime(shift.clock_in) : '--:--'} -
-                          {shift.clock_out ? formatManilaTime(shift.clock_out) : '--:--'}
-                        </p>
-                        <p className="text-[10px] text-slate-400">{(shift.total_hours || 0).toFixed(1)} hours rendered</p>
+                      <div className="grid grid-cols-2 gap-3 text-left">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time In</p>
+                          <p className="text-sm font-semibold text-slate-800">{shift.clock_in ? formatManilaTime(shift.clock_in) : '--:--'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time Out</p>
+                          <p className="text-sm font-semibold text-slate-800">{shift.clock_out ? formatManilaTime(shift.clock_out) : '--:--'}</p>
+                        </div>
                       </div>
-                      <div className="flex gap-1">
-                        {shift.is_late && <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="Late" />}
-                        {shift.is_undertime && <span className="w-1.5 h-1.5 rounded-full bg-orange-500" title="Undertime" />}
-                        {shift.is_overtime && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="Overtime" />}
+
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Hours</span>
+                        <span className="text-sm font-black text-slate-800">{formatShiftDuration(shift)}</span>
                       </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 uppercase tracking-wider pt-2">
+                        <span className="font-bold">Total Late Time</span>
+                        <span className="font-bold text-slate-800">{formatLateDuration(shift)}</span>
+                      </div>
+
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {allShifts.filter(s => s.status === 'completed').length === 0 && (
                   <div className="col-span-full py-4 text-center text-[11px] text-text-muted italic">No completed shifts recorded</div>
                 )}
