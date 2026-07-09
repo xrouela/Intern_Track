@@ -216,6 +216,19 @@ async function startServer() {
       // Return user profile without password hash
       const userProfile = stripPassword(user);
 
+      try {
+        await db('audit_logs').insert({
+          action: 'USER_LOGIN',
+          performed_by: user.uid,
+          performed_by_name: user.name,
+          target_user: user.uid,
+          target_user_name: user.name,
+          details: `${user.name} signed in`,
+        });
+      } catch (auditErr) {
+        console.warn('Login audit log failed:', auditErr);
+      }
+
       res.json({ success: true, user: userProfile });
     } catch (err) {
       console.error('Login error:', err);

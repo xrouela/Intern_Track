@@ -319,9 +319,9 @@ export default function TimeLogs() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      transformHeader: (h) => h.trim().toUpperCase(),
-      complete: async (results) => {
-        const data = results.data as any[];
+      transformHeader: (h: string) => h.trim().toUpperCase(),
+      complete: async (results: Papa.ParseResult<Record<string, unknown>>) => {
+        const data = results.data as Array<Record<string, unknown>>;
         
         for (let i = 0; i < data.length; i++) {
           const row = data[i];
@@ -797,8 +797,8 @@ export default function TimeLogs() {
                             {shift.status === 'active' ? 'On Shift' : 'Completed'}
                           </span>
                           <div className="flex gap-1 flex-wrap">
-                            {shift.is_late && <span className="text-[9px] font-bold text-red-500 uppercase">Late</span>}
-                            {shift.is_undertime && <span className="text-[9px] font-bold text-orange-500 uppercase">Undertime</span>}
+                            {Boolean(shift.is_late) && <span className="text-[9px] font-bold text-red-500 uppercase">Late</span>}
+                            {Boolean(shift.is_undertime) && <span className="text-[9px] font-bold text-orange-500 uppercase">Undertime</span>}
                             {shift.overtime_hours > 0 && (
                               <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1 rounded uppercase">
                                 OT: {shift.overtime_hours.toFixed(1)}h
@@ -1142,4 +1142,3 @@ export default function TimeLogs() {
     </div>
   );
 }
-

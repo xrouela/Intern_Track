@@ -865,9 +865,9 @@ export default function Dashboard() {
                 <Clock className="shrink-0" />
                 <div className="flex-1 text-[13px]">
                   <span className="font-bold underline">{shift.user_name}</span> was
-                  {shift.is_late && <span className="mx-1 font-black text-red-600">LATE</span>}
-                  {shift.is_late && shift.is_undertime && ' and '}
-                  {shift.is_undertime && <span className="mx-1 font-black text-orange-600">UNDERTIME</span>}
+                  {Boolean(shift.is_late) && <span className="mx-1 font-black text-red-600">LATE</span>}
+                  {Boolean(shift.is_late) && Boolean(shift.is_undertime) && ' and '}
+                  {Boolean(shift.is_undertime) && <span className="mx-1 font-black text-orange-600">UNDERTIME</span>}
                   on {shift.clock_in ? formatManilaTime(shift.clock_in) : 'Syncing...'}
                 </div>
                 <div className="text-[10px] uppercase font-black px-2 py-1 bg-orange-100 rounded tracking-tighter">Attendance</div>
@@ -925,4 +925,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

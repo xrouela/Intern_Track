@@ -188,8 +188,8 @@ export default function DTRGenerator() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
-        const parsed: DTRRow[] = (results.data as any[]).map(row => {
+      complete: (results: Papa.ParseResult<Record<string, unknown>>) => {
+        const parsed: DTRRow[] = (results.data as Array<Record<string, unknown>>).map((row) => {
           // Flexible column detection — supports: Date, TIME IN, Time In, etc.
           const get = (variants: string[]) => {
             for (const v of variants) {

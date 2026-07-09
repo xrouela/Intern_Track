@@ -105,7 +105,7 @@ export default function Admin() {
                     <p className="text-[10px] font-bold text-slate-400 italic">
                       {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'HH:mm') : '--:--'}
                     </p>
-                    {shift.is_late && <span className="text-[8px] font-black text-red-600 bg-red-100 px-1 rounded">LATE</span>}
+                    {Boolean(shift.is_late) && <span className="text-[8px] font-black text-red-600 bg-red-100 px-1 rounded">LATE</span>}
                  </div>
                </div>
              ))}

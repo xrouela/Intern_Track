@@ -13,6 +13,8 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {

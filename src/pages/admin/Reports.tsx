@@ -104,9 +104,9 @@ export default function Reports() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      transformHeader: (h) => h.trim().toUpperCase(),
-      complete: async (results) => {
-        const data = results.data as any[];
+      transformHeader: (h: string) => h.trim().toUpperCase(),
+      complete: async (results: Papa.ParseResult<Record<string, unknown>>) => {
+        const data = results.data as Array<Record<string, unknown>>;
         const interns = users.filter(u => u.role === 'intern');
         
         for (let i = 0; i < data.length; i++) {
@@ -377,8 +377,8 @@ export default function Reports() {
                   </td>
                   <td className="px-5 py-4 whitespace-nowrap">
                     <div className="flex gap-1.5">
-                       {shift.is_late && <span className="text-[9px] font-black text-red-600 uppercase">Late</span>}
-                       {shift.is_undertime && <span className="text-[9px] font-black text-orange-600 uppercase">Undertime</span>}
+                       {Boolean(shift.is_late) && <span className="text-[9px] font-black text-red-600 uppercase">Late</span>}
+                       {Boolean(shift.is_undertime) && <span className="text-[9px] font-black text-orange-600 uppercase">Undertime</span>}
                        {shift.overtime_hours > 0 && <span className="text-[9px] font-black text-indigo-600 uppercase">OT: {shift.overtime_hours.toFixed(1)}h</span>}
                        {!shift.is_late && !shift.is_undertime && shift.overtime_hours === 0 && <span className="text-[9px] font-black text-emerald-600 uppercase">Normal</span>}
                     </div>
@@ -496,4 +496,3 @@ export default function Reports() {
     </div>
   );
 }
-
