@@ -97,7 +97,7 @@ export default function Profile() {
         emergency_contact_phone: editedEmPhone,
         emergency_contact_email: editedEmEmail,
         emergency_contact_location: editedEmLocation,
-        skills: JSON.stringify(editedSkills)
+        skills: editedSkills
       });
       await refreshProfile();
       setIsEditing(false);
@@ -745,6 +745,7 @@ export default function Profile() {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && skillInput.trim()) {
                             e.preventDefault();
+                            if (editedSkills.length >= 10) return;
                             if (!editedSkills.includes(skillInput.trim())) {
                               setEditedSkills([...editedSkills, skillInput.trim()]);
                             }
@@ -752,17 +753,19 @@ export default function Profile() {
                           }
                         }}
                         className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                        placeholder="Type a skill and press Enter..."
+                        placeholder={editedSkills.length >= 10 ? 'Maximum 10 skills reached' : 'Type a skill and press Enter...'}
                       />
                       <button 
                         type="button"
                         onClick={() => {
+                           if (editedSkills.length >= 10) return;
                            if (skillInput.trim() && !editedSkills.includes(skillInput.trim())) {
                               setEditedSkills([...editedSkills, skillInput.trim()]);
                               setSkillInput('');
                            }
                         }}
-                        className="px-4 py-2.5 bg-primary text-white rounded-xl font-bold text-sm shadow-sm"
+                        disabled={editedSkills.length >= 10}
+                        className={`px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm ${editedSkills.length >= 10 ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-primary text-white'}`}
                       >
                          Add
                       </button>
@@ -778,6 +781,7 @@ export default function Profile() {
                      ))}
                      {editedSkills.length === 0 && <span className="text-xs text-slate-400 italic">No skills added yet.</span>}
                    </div>
+                   <p className="text-[11px] text-slate-400 mt-3">You can store up to 10 skills.</p>
                 </div>
 
                 <div className="pt-6 mt-auto shrink-0 border-t border-slate-100 flex gap-4">

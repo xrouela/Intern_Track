@@ -117,7 +117,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(user),
     });
-    if (!res.ok) throw new Error('Failed to save user');
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to save user');
+    }
     return res.json();
   },
   deleteUser: async (uid: string, performedBy: string) => {

@@ -26,6 +26,16 @@ export async function initDb() {
       table.string('role').notNullable();
       table.string('department');
       table.string('photoURL');
+      table.string('school');
+      table.string('program');
+      table.string('year_level');
+      table.string('emergency_contact_name');
+      table.string('emergency_contact_relation');
+      table.string('emergency_contact_phone');
+      table.string('emergency_contact_email');
+      table.string('emergency_contact_location');
+      table.json('skills');
+      table.json('documents');
       table.string('start_date');
       table.string('end_date');
       table.integer('required_hours');
@@ -48,6 +58,7 @@ export async function initDb() {
       { col: 'emergency_contact_phone', add: (t) => t.string('emergency_contact_phone').nullable() },
       { col: 'emergency_contact_email', add: (t) => t.string('emergency_contact_email').nullable() },
       { col: 'emergency_contact_location', add: (t) => t.string('emergency_contact_location').nullable() },
+      { col: 'school', add: (t) => t.string('school').nullable() },
       { col: 'skills', add: (t) => t.json('skills').nullable() },
       { col: 'documents', add: (t) => t.json('documents').nullable() },
     ];

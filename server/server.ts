@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import db, { initDb } from '../src/services/db.ts';
 import bcrypt from 'bcryptjs';
 import { buildRequestNotification } from './notifications.ts';
+import { normalizeProfilePersistence } from '../src/utils/profilePersistence.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,6 +159,13 @@ async function startServer() {
   };
 
   // USERS
+  const USER_COLUMNS = [
+    'uid','name','email','username','employee_id','password','is_default_password','role','department','photoURL',
+    'school','program','year_level','emergency_contact_name','emergency_contact_relation','emergency_contact_phone',
+    'emergency_contact_email','emergency_contact_location','skills','documents','start_date','end_date','required_hours',
+    'schedule_start','schedule_end','active_task','created_at','updated_at'
+  ];
+
   app.get('/api/users', async (req, res) => {
     try {
       const users = await db('users').select('*');
@@ -179,9 +187,31 @@ async function startServer() {
 
   app.post('/api/users', async (req, res) => {
     try {
-      const userData = { ...req.body };
+      const userData: any = { ...req.body, ...normalizeProfilePersistence(req.body) };
 
-      const existing = await db('users').where({ uid: userData.uid }).first();
+      console.log('[DEBUG] /api/users save payload:', JSON.stringify(userData));
+
+      // Ensure skills are stored as JSON string for MySQL JSON column compatibility
+      if (Array.isArray(userData.skills)) {
+        try {
+          userData.skills = JSON.stringify(userData.skills);
+        } catch (e) {
+          // leave as-is if stringify fails
+        }
+      }
+
+      let existing = null as any;
+      if (userData.uid) {
+        existing = await db('users').where({ uid: userData.uid }).first();
+      }
+      // Fallback: find by email if uid not provided or not found
+      if (!existing && userData.email) {
+        existing = await db('users').where({ email: userData.email }).first();
+        if (existing) {
+          // ensure we set uid so update path uses the correct identifier
+          userData.uid = existing.uid;
+        }
+      }
 
       if (existing) {
         // UPDATE existing user
@@ -192,7 +222,19 @@ async function startServer() {
         } else {
           delete userData.password;
         }
-        await db('users').where({ uid: userData.uid }).update(userData);
+        // Remove explicit null values to avoid violating NOT NULL columns
+        const updatePayload: any = { ...userData };
+        Object.keys(updatePayload).forEach((k) => {
+          if (updatePayload[k] === null) delete updatePayload[k];
+        });
+
+        // Whitelist columns to avoid inserting unexpected fields
+        const filteredUpdate: any = {};
+        Object.keys(updatePayload).forEach((k) => {
+          if (USER_COLUMNS.includes(k)) filteredUpdate[k] = updatePayload[k];
+        });
+
+        await db('users').where({ uid: userData.uid }).update(filteredUpdate);
         return res.json({ success: true, updated: true });
       }
 
@@ -215,11 +257,25 @@ async function startServer() {
         userData.is_default_password = false;
       }
 
-      await db('users').insert(userData);
+      if (!userData.name) {
+        return res.status(400).json({ error: 'Missing required field: name' });
+      }
+
+      // Whitelist for insert as well
+      const insertPayload: any = {};
+      Object.keys(userData).forEach((k) => {
+        if (USER_COLUMNS.includes(k)) insertPayload[k] = userData[k];
+      });
+
+      // ensure required defaults for inserts
+      if (!insertPayload.uid) insertPayload.uid = userData.uid || `u_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+      if (!insertPayload.role) insertPayload.role = 'intern';
+
+      await db('users').insert(insertPayload);
       res.json({ success: true, created: true, defaultPassword });
     } catch (err) {
-      console.error('Failed to save user:', err);
-      res.status(500).json({ error: 'Failed to save user' });
+      console.error('Failed to save user:', (err as any)?.stack || err);
+      res.status(500).json({ error: (err as any)?.message || String(err) || 'Failed to save user' });
     }
   });
 
@@ -448,7 +504,7 @@ async function startServer() {
         return res.status(403).json({ error: 'Unauthorized to delete users' });
       }
 
-      await db.transaction(async (trx) => {
+      await db.transaction(async (trx: any) => {
         await trx('notifications').where({ recipient_id: targetUid }).del();
         await trx('tasks').where({ assigned_to: targetUid }).del();
         await trx('shifts').where({ user_id: targetUid }).del();
@@ -665,7 +721,7 @@ async function startServer() {
       const request = await db('schedule_change_requests').where({ id: req.params.id }).first();
       if (!request) return res.status(404).json({ error: 'Schedule request not found' });
 
-      await db.transaction(async (trx) => {
+      await db.transaction(async (trx: any) => {
         await trx('schedule_change_requests').where({ id: req.params.id }).update(req.body);
 
         // An approved request becomes the intern's active schedule.  Keeping
