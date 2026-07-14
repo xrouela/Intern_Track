@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import db, { initDb } from '../src/services/db.ts';
 import bcrypt from 'bcryptjs';
+import { buildRequestNotification } from './notifications.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -643,11 +644,16 @@ async function startServer() {
   app.post('/api/schedule-requests', async (req, res) => {
     try {
       const [id] = await db('schedule_change_requests').insert(req.body);
+      const notification = buildRequestNotification({
+        requestType: 'schedule',
+        action: 'submitted',
+        requesterName: req.body.user_name || 'A user',
+      });
       await createNotifications({
         roles: ['admin', 'manager'],
         type: 'approval',
-        title: 'Schedule change request',
-        message: `${req.body.user_name || 'An intern'} submitted a schedule change request for review.`,
+        title: notification.title,
+        message: notification.message,
       });
       await recordActivity({ action: 'SCHEDULE_REQUEST_SUBMITTED', performedBy: req.body.user_id, performedByName: req.body.user_name, targetUser: req.body.user_id, targetUserName: req.body.user_name, details: `${req.body.user_name || 'User'} submitted a schedule-change request` });
       res.json({ id, ...req.body });
@@ -674,13 +680,16 @@ async function startServer() {
       });
 
       if (req.body.status === 'approved' || req.body.status === 'rejected') {
+        const notification = buildRequestNotification({
+          requestType: 'schedule',
+          action: req.body.status === 'approved' ? 'approved' : 'rejected',
+          reviewerName: req.body.reviewed_by_name || 'A reviewer',
+        });
         await createNotifications({
           userIds: [request.user_id],
           type: 'approval',
-          title: req.body.status === 'approved' ? 'Schedule request approved' : 'Schedule request rejected',
-          message: req.body.status === 'approved'
-            ? `Your schedule is now ${request.requested_time_in} - ${request.requested_time_out}.`
-            : 'Your schedule change request was not approved.',
+          title: notification.title,
+          message: notification.message,
         });
       }
 
@@ -702,6 +711,17 @@ async function startServer() {
   app.post('/api/leave-requests', async (req, res) => {
     try {
       const [id] = await db('leave_requests').insert(req.body);
+      const notification = buildRequestNotification({
+        requestType: 'leave',
+        action: 'submitted',
+        requesterName: req.body.user_name || 'A user',
+      });
+      await createNotifications({
+        roles: ['admin', 'manager'],
+        type: 'approval',
+        title: notification.title,
+        message: notification.message,
+      });
       await recordActivity({ action: 'LEAVE_REQUEST_SUBMITTED', performedBy: req.body.user_id, performedByName: req.body.user_name, targetUser: req.body.user_id, targetUserName: req.body.user_name, details: `${req.body.user_name || 'User'} submitted a ${req.body.leave_type || 'leave'} request` });
       res.json({ id, ...req.body });
     } catch (err) { res.status(500).json({ error: 'Failed to create leave request' }); }
@@ -711,6 +731,19 @@ async function startServer() {
     try {
       const request = await db('leave_requests').where({ id: req.params.id }).first();
       await db('leave_requests').where({ id: req.params.id }).update(req.body);
+      if (req.body.status === 'approved' || req.body.status === 'rejected') {
+        const notification = buildRequestNotification({
+          requestType: 'leave',
+          action: req.body.status === 'approved' ? 'approved' : 'rejected',
+          reviewerName: req.body.reviewed_by_name || 'A reviewer',
+        });
+        await createNotifications({
+          userIds: [request.user_id],
+          type: 'approval',
+          title: notification.title,
+          message: notification.message,
+        });
+      }
       if (req.body.reviewed_by) await recordActivity({ action: `LEAVE_REQUEST_${String(req.body.status || 'reviewed').toUpperCase()}`, performedBy: req.body.reviewed_by, performedByName: req.body.reviewed_by_name, targetUser: request?.user_id, targetUserName: request?.user_name, details: `${req.body.reviewed_by_name || 'Reviewer'} ${req.body.status || 'reviewed'} ${request?.user_name || 'a user'}'s ${request?.leave_type || 'leave'} request` });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed to update leave request' }); }
