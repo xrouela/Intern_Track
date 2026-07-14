@@ -65,6 +65,17 @@ export default function TimeLogs() {
     return () => clearInterval(interval);
   }, [profile]);
 
+  // Log the module visit once per page mount (rather than on every data refresh).
+  useEffect(() => {
+    if (!profile) return;
+    api.recordActivity({
+      action: 'TIME_LOGS_VIEWED',
+      performed_by: profile.uid,
+      performed_by_name: profile.name,
+      details: `${profile.name} opened ${profile.role === 'intern' ? 'their' : 'the'} time logs`,
+    }).catch((err) => console.warn('Failed to record time-log access:', err));
+  }, [profile?.uid]);
+
   const calculateHours = (start: string, end: string) => {
     const startTime = parse(start, 'HH:mm', new Date());
     const endTime = parse(end, 'HH:mm', new Date());

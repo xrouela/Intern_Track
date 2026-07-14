@@ -6,8 +6,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { format, differenceInSeconds } from 'date-fns';
 import { parseUTCDate, formatDuration } from '../utils/dateUtils';
 import { Link } from 'react-router-dom';
-import ExportReportButton from '../components/ExportReportButton';
-
 export default function Tasks() {
   const { profile, refreshProfile } = useAuth();
   const [tasks, setTasks] = useState<any[]>([]);
@@ -45,6 +43,7 @@ export default function Tasks() {
     start_date: format(new Date(), 'yyyy-MM-dd'),
     end_date: format(new Date(), 'yyyy-MM-dd'),
     estimated_hours: 0,
+    ticket_link: '',
     priority: 'medium',
     status: 'pending'
   });
@@ -117,6 +116,7 @@ export default function Tasks() {
         start_date: format(new Date(), 'yyyy-MM-dd'),
         end_date: format(new Date(), 'yyyy-MM-dd'),
         estimated_hours: 0,
+        ticket_link: '',
         priority: 'medium',
         status: 'pending'
       });
@@ -299,6 +299,7 @@ export default function Tasks() {
                 start_date: format(new Date(), 'yyyy-MM-dd'),
                 end_date: format(new Date(), 'yyyy-MM-dd'),
                 estimated_hours: 0,
+                ticket_link: '',
                 priority: 'medium',
                 status: 'pending'
               });
@@ -308,13 +309,6 @@ export default function Tasks() {
           >
             <Plus size={20} /> New Task
           </button>
-          <ExportReportButton 
-            filters={{
-              month: 'all',
-              year: 'all',
-              userId: filterUser !== 'all' ? filterUser : undefined
-            }}
-          />
         </div>
       </div>
 
@@ -518,20 +512,25 @@ export default function Tasks() {
       {/* Modal */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-xl rounded-2xl shadow-xl p-8"
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="bg-white h-full w-full max-w-lg shadow-2xl p-6 sm:p-8 flex flex-col overflow-hidden"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">{editingTask ? 'Edit Task' : 'Create New Task'}</h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><XIcon size={24} /></button>
+              <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100 shrink-0">
+                <h2 className="text-2xl font-black text-slate-900">{editingTask ? 'Edit Task' : 'Create New Task'}</h2>
+                <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 bg-slate-50 p-2 rounded-full"><XIcon size={20} /></button>
               </div>
 
-              <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
+              <form onSubmit={handleSubmit} className="flex flex-1 min-h-0 flex-col">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1 overflow-y-auto pr-1">
+                <div className="sm:col-span-2">
+                  <h3 className="text-sm font-bold text-slate-800 mb-1 uppercase tracking-wider text-primary">Task Details</h3>
+                </div>
+                <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
                   <input
                     required
@@ -541,12 +540,22 @@ export default function Tasks() {
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
                   />
                 </div>
-                <div className="md:col-span-2">
+                <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
                   <textarea
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Freshdesk Ticket Link</label>
+                  <input
+                    type="url"
+                    value={formData.ticket_link || ''}
+                    onChange={(e) => setFormData({ ...formData, ticket_link: e.target.value })}
+                    placeholder="https://your-company.freshdesk.com/a/tickets/123"
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
                   />
                 </div>
@@ -610,17 +619,18 @@ export default function Tasks() {
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
                   />
                 </div>
-                <div className="md:col-span-2 mt-4 flex gap-3">
+                </div>
+                <div className="pt-6 mt-6 shrink-0 border-t border-slate-100 flex gap-4">
                   <button
                     type="submit"
-                    className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition"
+                    className="flex-1 bg-primary text-white font-black text-sm py-3.5 rounded-xl hover:bg-blue-700 transition shadow-md shadow-primary/20"
                   >
                     {editingTask ? 'Save Changes' : 'Create Task'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition"
+                    className="flex-1 bg-slate-50 border border-slate-200 text-slate-600 font-black text-sm py-3.5 rounded-xl hover:bg-slate-100 transition"
                   >
                     Cancel
                   </button>

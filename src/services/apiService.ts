@@ -49,6 +49,56 @@ export const api = {
     if (!res.ok) throw new Error('Failed to fetch audit logs');
     return res.json();
   },
+  recordActivity: async (activity: {
+    action: string;
+    performed_by: string;
+    performed_by_name?: string;
+    target_user?: string;
+    target_user_name?: string;
+    details?: string;
+  }) => {
+    const res = await fetch('/api/audit-logs/activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(activity),
+    });
+    if (!res.ok) throw new Error('Failed to record activity');
+    return res.json();
+  },
+
+  // Notifications
+  getNotifications: async (userId: string) => {
+    const res = await fetch(`/api/notifications?user_id=${encodeURIComponent(userId)}`);
+    if (!res.ok) throw new Error('Failed to fetch notifications');
+    return res.json();
+  },
+  markNotificationRead: async (id: number | string, userId: string) => {
+    const res = await fetch(`/api/notifications/${id}/read`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) throw new Error('Failed to mark notification as read');
+    return res.json();
+  },
+  markAllNotificationsRead: async (userId: string) => {
+    const res = await fetch('/api/notifications/read-all', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (!res.ok) throw new Error('Failed to mark notifications as read');
+    return res.json();
+  },
+  broadcastNotification: async (data: { type: 'announcement' | 'system_alert'; title: string; message: string; roles?: string[] }) => {
+    const res = await fetch('/api/notifications/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to send notification');
+    return res.json();
+  },
 
   // Users
   getUsers: async () => {
@@ -96,7 +146,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(task),
     });
-    if (!res.ok) throw new Error('Failed to create task');
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Failed to create task');
+    }
     return res.json();
   },
   updateTask: async (id: number | string, task: any) => {

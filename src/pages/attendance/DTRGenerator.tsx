@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Upload, FileText, Settings, Trash2, CheckCircle, AlertCircle, Plus, Coffee, Moon, Save, RotateCcw } from 'lucide-react';
 import Papa from 'papaparse';
+import { api } from '../../services/apiService';
+import { parseUTCDate } from '../../utils/dateUtils';
 
 type RowStatus = 'valid' | 'absent' | 'restday' | 'error';
 
@@ -14,7 +16,6 @@ interface DTRRow {
   signature: string;
   status: RowStatus;
   errorMsg?: string;
-  override?: '' | RowStatus;
 }
 
 interface SavedFormat {
@@ -148,38 +149,62 @@ export default function DTRGenerator() {
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [generated, setGenerated] = useState(false);
-  const [inputMode, setInputMode] = useState<'csv' | 'paste'>('csv');
-  const [pasteText, setPasteText] = useState('');
-  const [pasteError, setPasteError] = useState('');
+  const [loadingLogs, setLoadingLogs] = useState(true);
+  const [logsError, setLogsError] = useState('');
 
-  // Recalc when toggles change (skip rows with manual override)
+  // Load the signed-in intern's recorded attendance sessions into the DTR.
+  useEffect(() => {
+    if (!profile?.uid) {
+      setLoadingLogs(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadTimeLogs = async () => {
+      setLoadingLogs(true);
+      setLogsError('');
+      try {
+        const shifts = await api.getShifts(profile.uid);
+        if (cancelled) return;
+
+        const importedRows = shifts
+          .filter((shift: any) => shift.clock_in)
+          .sort((a: any, b: any) => parseUTCDate(a.clock_in).getTime() - parseUTCDate(b.clock_in).getTime())
+          .map((shift: any) => {
+            const clockIn = parseUTCDate(shift.clock_in);
+            const clockOut = shift.clock_out ? parseUTCDate(shift.clock_out) : null;
+            return makeRow(
+              clockIn.toISOString().slice(0, 10),
+              clockIn.toISOString().slice(11, 16),
+              clockOut ? clockOut.toISOString().slice(11, 16) : '',
+              deductLunch,
+              roundHours,
+            );
+          });
+        setRows(importedRows);
+      } catch (error) {
+        console.error('Failed to load attendance time logs:', error);
+        if (!cancelled) setLogsError('Unable to load your time logs. You can still upload a CSV file.');
+      } finally {
+        if (!cancelled) setLoadingLogs(false);
+      }
+    };
+
+    loadTimeLogs();
+    return () => { cancelled = true; };
+  }, [profile?.uid]);
+
+  // Recalculate all entries when the hour-calculation options change.
   useEffect(() => {
     setRows(prev => prev.map(r => {
-      if (r.override) return r;
       const calc = calcHours(r.timeIn, r.timeOut, deductLunch, roundHours);
       return { ...r, hours: calc.hours, status: calc.status, errorMsg: calc.errorMsg };
     }));
   }, [deductLunch, roundHours]);
 
-  const resolvedStatus = (r: DTRRow): RowStatus => (r.override as RowStatus) || r.status;
-
   const totalHours = rows.reduce((acc, r) => {
-    return acc + (resolvedStatus(r) === 'valid' ? parseFloat(r.hours) : 0);
+    return acc + (r.status === 'valid' ? parseFloat(r.hours) : 0);
   }, 0).toFixed(2);
-
-  const parsePasteText = () => {
-    setPasteError('');
-    const lines = pasteText.trim().split('\n').filter(l => l.trim());
-    if (!lines.length) { setPasteError('No data entered.'); return; }
-    const parsed: DTRRow[] = lines.map(line => {
-      // Support separators: | , \t or 2+ spaces
-      const parts = line.split(/\s*[|,\t]\s*|\s{2,}/).map(p => p.trim());
-      const [date = '', timeIn = '', timeOut = ''] = parts;
-      return makeRow(date, timeIn, timeOut, deductLunch, roundHours);
-    });
-    setRows(parsed);
-    setPasteText('');
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -220,24 +245,10 @@ export default function DTRGenerator() {
       if (r.id !== id) return r;
       const updated = { ...r, [field]: value };
       if (field === 'timeIn' || field === 'timeOut') {
-        if (!updated.override) {
-          const calc = calcHours(updated.timeIn, updated.timeOut, deductLunch, roundHours);
-          updated.hours = calc.hours;
-          updated.status = calc.status;
-          updated.errorMsg = calc.errorMsg;
-        }
-      }
-      if (field === 'override') {
-        updated.override = value as ('' | RowStatus);
-        // Recalc hours if clearing override
-        if (!value) {
-          const calc = calcHours(r.timeIn, r.timeOut, deductLunch, roundHours);
-          updated.hours = calc.hours;
-          updated.status = calc.status;
-          updated.errorMsg = calc.errorMsg;
-        } else if (value === 'absent' || value === 'restday') {
-          updated.hours = '0.00';
-        }
+        const calc = calcHours(updated.timeIn, updated.timeOut, deductLunch, roundHours);
+        updated.hours = calc.hours;
+        updated.status = calc.status;
+        updated.errorMsg = calc.errorMsg;
       }
       return updated;
     }));
@@ -314,7 +325,7 @@ export default function DTRGenerator() {
   };
 
   const rowBg = (r: DTRRow) => {
-    const s = resolvedStatus(r);
+    const s = r.status;
     if (s === 'valid') return 'bg-emerald-50/30';
     if (s === 'absent') return 'bg-amber-50/40';
     if (s === 'restday') return 'bg-blue-50/40';
@@ -326,8 +337,8 @@ export default function DTRGenerator() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">DTR Generator</h1>
-          <p className="text-slate-500 text-sm">Import, clean, and generate your official Daily Time Record.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Attendance Report</h1>
+          <p className="text-slate-500 text-sm">Your recorded attendance time logs are automatically prepared for your Daily Time Record.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={exportCSV} disabled={rows.length === 0} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm text-sm">
@@ -384,45 +395,19 @@ export default function DTRGenerator() {
           {/* Import */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2"><Upload size={16}/> Add Data</h2>
-            {/* Mode Tabs */}
-            <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-4">
-              <button onClick={() => setInputMode('csv')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition ${inputMode === 'csv' ? 'bg-white shadow text-indigo-700' : 'text-slate-500'}`}>
-                Upload CSV
-              </button>
-              <button onClick={() => setInputMode('paste')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-md transition ${inputMode === 'paste' ? 'bg-white shadow text-indigo-700' : 'text-slate-500'}`}>
-                Paste / Type
-              </button>
+            <p className="text-xs text-slate-500 mb-3">
+              {loadingLogs ? 'Loading your recorded time logs...' : `${rows.length} recorded time log${rows.length === 1 ? '' : 's'} loaded automatically.`}
+            </p>
+            {logsError && <p className="text-xs text-red-500 mb-3">{logsError}</p>}
+            <div className="relative group cursor-pointer">
+              <input type="file" accept=".csv" onChange={handleFileUpload} disabled={importing}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
+              <div className="border-2 border-dashed border-slate-200 group-hover:border-indigo-400 rounded-xl p-5 text-center transition-colors">
+                <Upload className="mx-auto text-slate-400 mb-2" size={22} />
+                <p className="text-sm font-bold text-slate-700">{importing ? 'Processing...' : 'Replace with CSV File'}</p>
+                <p className="text-[10px] text-slate-400 mt-1">Optional — headers: Date, In, Out</p>
+              </div>
             </div>
-
-            {inputMode === 'csv' ? (
-              <div className="relative group cursor-pointer">
-                <input type="file" accept=".csv" onChange={handleFileUpload} disabled={importing}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed" />
-                <div className="border-2 border-dashed border-slate-200 group-hover:border-indigo-400 rounded-xl p-5 text-center transition-colors">
-                  <Upload className="mx-auto text-slate-400 mb-2" size={22} />
-                  <p className="text-sm font-bold text-slate-700">{importing ? 'Processing...' : 'Select CSV File'}</p>
-                  <p className="text-[10px] text-slate-400 mt-1">Headers: Date, In, Out</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-[10px] text-slate-400 font-medium">One row per line: <span className="font-mono bg-slate-100 px-1 rounded">Date | Time In | Time Out</span></p>
-                <textarea
-                  rows={6}
-                  value={pasteText}
-                  onChange={e => setPasteText(e.target.value)}
-                  placeholder={`2026-01-24 | ABSENT | ABSENT\n2026-02-01 | REST DAY | REST DAY\n2026-02-02 | 08:00 AM | 05:00 PM\n2026-02-03 | 9:05PM | 6:00AM`}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-100 text-xs font-mono resize-none"
-                />
-                {pasteError && <p className="text-xs text-red-500">{pasteError}</p>}
-                <button onClick={parsePasteText}
-                  className="w-full bg-indigo-600 text-white text-xs font-bold py-2 rounded-xl hover:bg-indigo-700 transition flex items-center justify-center gap-1">
-                  <Plus size={13}/> Parse & Load Entries
-                </button>
-              </div>
-            )}
 
             <div className="space-y-2.5 pt-3 mt-3 border-t border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Calculation Options</p>
@@ -500,7 +485,6 @@ export default function DTRGenerator() {
                   <th className="px-3 py-3 font-bold text-slate-600 text-xs">Time Out</th>
                   <th className="px-3 py-3 font-bold text-slate-600 text-xs">Hours</th>
                   <th className="px-3 py-3 font-bold text-slate-600 text-xs">Status</th>
-                  <th className="px-3 py-3 font-bold text-slate-600 text-xs">Override</th>
                   <th className="px-3 py-3"></th>
                 </tr>
               </thead>
@@ -524,6 +508,7 @@ export default function DTRGenerator() {
                     </td>
                     <td className="px-3 py-1.5 font-semibold text-slate-700 text-xs tabular-nums">{row.hours}</td>
                     <td className="px-3 py-1.5">{statusBadge(row)}</td>
+                    {/*
                     <td className="px-1.5 py-1.5">
                       <select value={row.override || ''} onChange={e => updateRow(row.id, 'override', e.target.value)}
                         className="text-[10px] border border-slate-200 rounded-lg px-1.5 py-1 outline-none bg-white focus:ring-1 focus:ring-indigo-200 cursor-pointer">
@@ -533,6 +518,7 @@ export default function DTRGenerator() {
                         <option value="restday">⚪ REST DAY</option>
                       </select>
                     </td>
+                    */}
                     <td className="px-2 py-1.5">
                       <button onClick={() => removeRow(row.id)} className="text-slate-300 hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition">
                         <Trash2 size={14}/>
@@ -542,9 +528,9 @@ export default function DTRGenerator() {
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-slate-400 text-sm">
+                    <td colSpan={6} className="px-4 py-16 text-center text-slate-400 text-sm">
                       <Upload className="mx-auto mb-3 text-slate-300" size={32}/>
-                      No data yet. Upload a CSV or add rows manually.
+                      No recorded time logs yet. You can upload a CSV or add a row manually.
                     </td>
                   </tr>
                 )}
@@ -563,4 +549,3 @@ export default function DTRGenerator() {
     </div>
   );
 }
-

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -19,10 +19,7 @@ import {
   Target, 
   Check, 
   Sparkles,
-  Award,
-  Users,
-  GraduationCap,
-  ArrowRight
+  Award
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 

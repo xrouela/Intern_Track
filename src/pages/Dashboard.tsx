@@ -853,75 +853,77 @@ export default function Dashboard() {
       </div>
 
       {/* Critical Tasks Section (Warnings) */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800">Alerts & Notifications</h3>
-        </div>
-        <div className="p-6">
-          <div className="space-y-4">
-            {/* Attendance Alerts (Admin/Manager) */}
-            {(profile?.role === 'admin' || profile?.role === 'manager') && allShifts.filter(s => s.status === 'completed' && (s.is_late || s.is_undertime)).slice(0, 5).map(shift => (
-              <div key={shift.id} className="flex items-center gap-4 p-4 bg-orange-50 text-orange-700 rounded-xl border border-orange-100 italic">
-                <Clock className="shrink-0" />
-                <div className="flex-1 text-[13px]">
-                  <span className="font-bold underline">{shift.user_name}</span> was
-                  {Boolean(shift.is_late) && <span className="mx-1 font-black text-red-600">LATE</span>}
-                  {Boolean(shift.is_late) && Boolean(shift.is_undertime) && ' and '}
-                  {Boolean(shift.is_undertime) && <span className="mx-1 font-black text-orange-600">UNDERTIME</span>}
-                  on {shift.clock_in ? formatManilaTime(shift.clock_in) : 'Syncing...'}
-                </div>
-                <div className="text-[10px] uppercase font-black px-2 py-1 bg-orange-100 rounded tracking-tighter">Attendance</div>
-              </div>
-            ))}
-
-            {tasks.filter(t => {
-              const taskLogs = logs.filter(l => l.task_id === t.id);
-              const rendered = taskLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0);
-              return rendered > t.estimated_hours && t.status !== 'completed';
-            }).map(task => {
-              const taskLogs = logs.filter(l => l.task_id === task.id);
-              const rendered = taskLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0);
-              const variance = rendered - task.estimated_hours;
-
-              return (
-                <div key={task.id} className="flex items-center gap-4 p-4 bg-red-50 text-red-700 rounded-xl border border-red-100">
-                  <TriangleAlert className="shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-semibold">Overwork Alert: {task.title}</p>
-                    <p className="text-sm opacity-90">
-                      Rendered hours ({rendered.toFixed(1)}h) have exceeded the estimated {task.estimated_hours}h for this task.
-                      <span className="ml-1 font-bold">(+{variance.toFixed(1)}h variance)</span>
-                    </p>
+      {profile?.role !== 'intern' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-6 border-b border-slate-100">
+            <h3 className="text-lg font-semibold text-slate-800">Alerts & Notifications</h3>
+          </div>
+          <div className="p-6">
+            <div className="space-y-4">
+              {/* Attendance Alerts (Admin/Manager) */}
+              {(profile?.role === 'admin' || profile?.role === 'manager') && allShifts.filter(s => s.status === 'completed' && (s.is_late || s.is_undertime)).slice(0, 5).map(shift => (
+                <div key={shift.id} className="flex items-center gap-4 p-4 bg-orange-50 text-orange-700 rounded-xl border border-orange-100 italic">
+                  <Clock className="shrink-0" />
+                  <div className="flex-1 text-[13px]">
+                    <span className="font-bold underline">{shift.user_name}</span> was
+                    {Boolean(shift.is_late) && <span className="mx-1 font-black text-red-600">LATE</span>}
+                    {Boolean(shift.is_late) && Boolean(shift.is_undertime) && ' and '}
+                    {Boolean(shift.is_undertime) && <span className="mx-1 font-black text-orange-600">UNDERTIME</span>}
+                    on {shift.clock_in ? formatManilaTime(shift.clock_in) : 'Syncing...'}
                   </div>
-                  <div className="text-xs uppercase font-bold px-2 py-1 bg-red-100 rounded">Critical</div>
+                  <div className="text-[10px] uppercase font-black px-2 py-1 bg-orange-100 rounded tracking-tighter">Attendance</div>
                 </div>
-              );
-            })}
+              ))}
 
-            {tasks.filter(t => {
-              const deadline = new Date(t.end_date);
-              const now = new Date();
-              const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-              return diffDays <= 3 && diffDays > 0 && t.status !== 'completed';
-            }).map(task => (
-              <div key={task.id} className="flex items-center gap-4 p-4 bg-orange-50 text-orange-700 rounded-xl border border-orange-100">
-                <Clock className="shrink-0" />
-                <div className="flex-1">
-                  <p className="font-semibold">Deadline Approaching: {task.title}</p>
-                  <p className="text-sm opacity-90">Due on {task.end_date}. Please ensure progress is on track.</p>
+              {tasks.filter(t => {
+                const taskLogs = logs.filter(l => l.task_id === t.id);
+                const rendered = taskLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0);
+                return rendered > t.estimated_hours && t.status !== 'completed';
+              }).map(task => {
+                const taskLogs = logs.filter(l => l.task_id === task.id);
+                const rendered = taskLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0);
+                const variance = rendered - task.estimated_hours;
+
+                return (
+                  <div key={task.id} className="flex items-center gap-4 p-4 bg-red-50 text-red-700 rounded-xl border border-red-100">
+                    <TriangleAlert className="shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-semibold">Overwork Alert: {task.title}</p>
+                      <p className="text-sm opacity-90">
+                        Rendered hours ({rendered.toFixed(1)}h) have exceeded the estimated {task.estimated_hours}h for this task.
+                        <span className="ml-1 font-bold">(+{variance.toFixed(1)}h variance)</span>
+                      </p>
+                    </div>
+                    <div className="text-xs uppercase font-bold px-2 py-1 bg-red-100 rounded">Critical</div>
+                  </div>
+                );
+              })}
+
+              {tasks.filter(t => {
+                const deadline = new Date(t.end_date);
+                const now = new Date();
+                const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                return diffDays <= 3 && diffDays > 0 && t.status !== 'completed';
+              }).map(task => (
+                <div key={task.id} className="flex items-center gap-4 p-4 bg-orange-50 text-orange-700 rounded-xl border border-orange-100">
+                  <Clock className="shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-semibold">Deadline Approaching: {task.title}</p>
+                    <p className="text-sm opacity-90">Due on {task.end_date}. Please ensure progress is on track.</p>
+                  </div>
+                  <div className="text-xs uppercase font-bold px-2 py-1 bg-orange-100 rounded">Warning</div>
                 </div>
-                <div className="text-xs uppercase font-bold px-2 py-1 bg-orange-100 rounded">Warning</div>
-              </div>
-            ))}
+              ))}
 
-            {tasks.length === 0 && (
-              <div className="text-center py-8 text-slate-400">
-                No active alerts at this time.
-              </div>
-            )}
+              {tasks.length === 0 && (
+                <div className="text-center py-8 text-slate-400">
+                  No active alerts at this time.
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

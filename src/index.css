@@ -4,8 +4,8 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   
-  --color-primary: #2563eb;
-  --color-primary-light: #eff6ff;
+  --color-primary: #6366f1; /* Indigo 500 to match the new vibrant purple design */
+  --color-primary-light: #e0e7ff;
   --color-background-main: #f8fafc;
   --color-sidebar: #ffffff;
   --color-text-main: #1e293b;

@@ -41,6 +41,15 @@ export async function initDb() {
       { col: 'username', add: (t) => t.string('username').nullable() },
       { col: 'employee_id', add: (t) => t.string('employee_id').nullable() },
       { col: 'is_default_password', add: (t) => t.boolean('is_default_password').defaultTo(true) },
+      { col: 'program', add: (t) => t.string('program').nullable() },
+      { col: 'year_level', add: (t) => t.string('year_level').nullable() },
+      { col: 'emergency_contact_name', add: (t) => t.string('emergency_contact_name').nullable() },
+      { col: 'emergency_contact_relation', add: (t) => t.string('emergency_contact_relation').nullable() },
+      { col: 'emergency_contact_phone', add: (t) => t.string('emergency_contact_phone').nullable() },
+      { col: 'emergency_contact_email', add: (t) => t.string('emergency_contact_email').nullable() },
+      { col: 'emergency_contact_location', add: (t) => t.string('emergency_contact_location').nullable() },
+      { col: 'skills', add: (t) => t.json('skills').nullable() },
+      { col: 'documents', add: (t) => t.json('documents').nullable() },
     ];
     for (const m of migrations) {
       const exists = await db.schema.hasColumn('users', m.col);
@@ -65,6 +74,21 @@ export async function initDb() {
     });
   }
 
+  const hasNotifications = await db.schema.hasTable('notifications');
+  if (!hasNotifications) {
+    await db.schema.createTable('notifications', (table) => {
+      table.increments('id').primary();
+      table.string('recipient_id').notNullable().references('users.uid');
+      table.string('type').notNullable();
+      table.string('title').notNullable();
+      table.text('message').notNullable();
+      table.boolean('is_read').notNullable().defaultTo(false);
+      table.dateTime('read_at').nullable();
+      table.timestamps(true, true);
+      table.index(['recipient_id', 'is_read']);
+    });
+  }
+
   const hasTasks = await db.schema.hasTable('tasks');
   if (!hasTasks) {
     await db.schema.createTable('tasks', (table) => {
@@ -76,9 +100,14 @@ export async function initDb() {
       table.string('start_date');
       table.string('end_date');
       table.float('estimated_hours');
+      table.string('ticket_link');
       table.string('status').defaultTo('pending');
       table.string('priority').defaultTo('medium');
       table.timestamps(true, true);
+    });
+  } else if (!(await db.schema.hasColumn('tasks', 'ticket_link'))) {
+    await db.schema.alterTable('tasks', (table) => {
+      table.string('ticket_link');
     });
   }
 

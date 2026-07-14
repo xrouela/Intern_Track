@@ -18,6 +18,16 @@ interface UserProfile {
   schedule_end?: string;
   active_task?: any;
   is_default_password?: boolean;
+  program?: string;
+  school?: string;
+  year_level?: string;
+  emergency_contact_name?: string;
+  emergency_contact_relation?: string;
+  emergency_contact_phone?: string;
+  emergency_contact_email?: string;
+  emergency_contact_location?: string;
+  skills?: string | string[];
+  documents?: any;
 }
 
 interface AuthContextType {

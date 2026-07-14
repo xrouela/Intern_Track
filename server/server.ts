@@ -31,6 +31,41 @@ async function startServer() {
     return safe;
   };
 
+  // Keep an auditable record of actions performed in the application.  The
+  // activity feed is intentionally best-effort: an audit write must never
+  // prevent the user-facing action from completing.
+  const recordActivity = async ({ action, performedBy, performedByName, targetUser, targetUserName, details }: any) => {
+    try {
+      await db('audit_logs').insert({
+        action,
+        performed_by: performedBy || null,
+        performed_by_name: performedByName || null,
+        target_user: targetUser || null,
+        target_user_name: targetUserName || null,
+        details: details || null,
+      });
+      const actor = performedByName || performedBy || 'System';
+      console.log(`[Activity] ${new Date().toISOString()} | ${actor} | ${action}${details ? ` | ${details}` : ''}`);
+    } catch (auditErr) {
+      console.warn(`Activity audit failed for ${action}:`, auditErr);
+    }
+  };
+
+  const createNotifications = async ({ userIds = [], roles = [], type, title, message }: any) => {
+    const recipients = new Set<string>(userIds.filter(Boolean));
+    if (roles.length > 0) {
+      const users = await db('users').whereIn('role', roles).select('uid');
+      users.forEach((user: any) => recipients.add(user.uid));
+    }
+    if (recipients.size === 0) return;
+    await db('notifications').insert(Array.from(recipients).map((recipient_id) => ({
+      recipient_id,
+      type,
+      title,
+      message,
+    })));
+  };
+
   // Helper: generate username from full name
   const generateUsername = (name: string) => {
     return name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -216,18 +251,10 @@ async function startServer() {
       // Return user profile without password hash
       const userProfile = stripPassword(user);
 
-      try {
-        await db('audit_logs').insert({
-          action: 'USER_LOGIN',
-          performed_by: user.uid,
-          performed_by_name: user.name,
-          target_user: user.uid,
-          target_user_name: user.name,
-          details: `${user.name} signed in`,
-        });
-      } catch (auditErr) {
-        console.warn('Login audit log failed:', auditErr);
-      }
+      await recordActivity({
+        action: 'USER_LOGIN', performedBy: user.uid, performedByName: user.name,
+        targetUser: user.uid, targetUserName: user.name, details: `${user.name} signed in`,
+      });
 
       res.json({ success: true, user: userProfile });
     } catch (err) {
@@ -265,12 +292,9 @@ async function startServer() {
         });
 
         // Audit log
-        await db('audit_logs').insert({
-          action: 'PASSWORD_RESET',
-          performed_by: admin.uid,
-          performed_by_name: admin.name,
-          target_user: target.uid,
-          target_user_name: target.name,
+        await recordActivity({
+          action: 'PASSWORD_RESET', performedBy: admin.uid, performedByName: admin.name,
+          targetUser: target.uid, targetUserName: target.name,
           details: `Password reset to default for ${target.username}`,
         });
 
@@ -332,10 +356,75 @@ async function startServer() {
   // AUDIT LOGS
   app.get('/api/audit-logs', async (req, res) => {
     try {
-      const logs = await db('audit_logs').select('*').orderBy('created_at', 'desc').limit(100);
+      const logs = await db('audit_logs')
+        .leftJoin('users', 'audit_logs.performed_by', 'users.uid')
+        .select('audit_logs.*', 'users.role as performed_by_role')
+        .orderBy('audit_logs.created_at', 'desc').limit(100);
       res.json(logs);
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch audit logs' });
+    }
+  });
+
+  // NOTIFICATIONS
+  // Notifications are stored per recipient so a read notification stays read
+  // after the user signs out and back in.
+  app.get('/api/notifications', async (req, res) => {
+    try {
+      const userId = String(req.query.user_id || '');
+      if (!userId) return res.status(400).json({ error: 'user_id is required' });
+      const notifications = await db('notifications')
+        .where({ recipient_id: userId, is_read: false })
+        .orderBy('created_at', 'desc')
+        .limit(100);
+      res.json(notifications);
+    } catch (err) { res.status(500).json({ error: 'Failed to fetch notifications' }); }
+  });
+
+  app.patch('/api/notifications/read-all', async (req, res) => {
+    try {
+      const { user_id } = req.body;
+      if (!user_id) return res.status(400).json({ error: 'user_id is required' });
+      await db('notifications').where({ recipient_id: user_id, is_read: false }).update({ is_read: true, read_at: new Date() });
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to mark notifications as read' }); }
+  });
+
+  app.patch('/api/notifications/:id/read', async (req, res) => {
+    try {
+      const { user_id } = req.body;
+      const updated = await db('notifications').where({ id: req.params.id, recipient_id: user_id, is_read: false }).update({ is_read: true, read_at: new Date() });
+      if (!updated) return res.status(404).json({ error: 'Notification not found' });
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to mark notification as read' }); }
+  });
+
+  // Supports administrator-created announcements and system alerts for any
+  // combination of roles. Each recipient receives an independent record.
+  app.post('/api/notifications/broadcast', async (req, res) => {
+    try {
+      const { type, title, message, roles = ['admin', 'manager', 'intern'] } = req.body;
+      if (!['announcement', 'system_alert'].includes(type) || !title || !message) {
+        return res.status(400).json({ error: 'A valid type, title, and message are required' });
+      }
+      await createNotifications({ roles, type, title, message });
+      res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: 'Failed to send notification' }); }
+  });
+
+  // Record page-level activity such as an administrator opening the time-log
+  // module. Client actions still carry a real user id rather than relying on
+  // an unauthenticated display name.
+  app.post('/api/audit-logs/activity', async (req, res) => {
+    try {
+      const { action, performed_by, performed_by_name, target_user, target_user_name, details } = req.body;
+      if (!action || !performed_by) return res.status(400).json({ error: 'action and performed_by are required' });
+      const actor = await db('users').where({ uid: performed_by }).first();
+      if (!actor) return res.status(404).json({ error: 'Activity user not found' });
+      await recordActivity({ action, performedBy: actor.uid, performedByName: actor.name || performed_by_name, targetUser: target_user, targetUserName: target_user_name, details });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to record activity' });
     }
   });
 
@@ -359,6 +448,7 @@ async function startServer() {
       }
 
       await db.transaction(async (trx) => {
+        await trx('notifications').where({ recipient_id: targetUid }).del();
         await trx('tasks').where({ assigned_to: targetUid }).del();
         await trx('shifts').where({ user_id: targetUid }).del();
         await trx('time_logs').where({ user_id: targetUid }).del();
@@ -392,6 +482,7 @@ async function startServer() {
       const [id] = await db('tasks').insert(req.body);
       res.json({ id, ...req.body });
     } catch (err) {
+      console.error('Failed to create task:', err);
       res.status(500).json({ error: 'Failed to create task' });
     }
   });
@@ -443,6 +534,7 @@ async function startServer() {
         }
       }
       const [id] = await db('shifts').insert(shiftPayload);
+      await recordActivity({ action: 'SHIFT_RECORDED', performedBy: shiftPayload.user_id, performedByName: shiftPayload.user_name, targetUser: shiftPayload.user_id, targetUserName: shiftPayload.user_name, details: `${shiftPayload.user_name || 'User'} recorded an attendance entry` });
       res.json({ id, ...shiftPayload });
     } catch (err) {
       res.status(500).json({ error: 'Failed to create shift' });
@@ -490,6 +582,7 @@ async function startServer() {
   app.post('/api/logs', async (req, res) => {
     try {
       const [id] = await db('time_logs').insert(req.body);
+      await recordActivity({ action: 'TIME_LOG_CREATED', performedBy: req.body.user_id, performedByName: req.body.user_name, targetUser: req.body.user_id, targetUserName: req.body.user_name, details: `${req.body.user_name || 'User'} submitted a time log${req.body.task_name ? ` for ${req.body.task_name}` : ''}` });
       res.json({ id, ...req.body });
     } catch (err) {
       res.status(500).json({ error: 'Failed to create log' });
@@ -530,6 +623,7 @@ async function startServer() {
   app.post('/api/approvals', async (req, res) => {
     try {
       const [id] = await db('approvals').insert(req.body);
+      await recordActivity({ action: `TIME_LOG_${String(req.body.status || 'reviewed').toUpperCase()}`, performedBy: req.body.approved_by, performedByName: req.body.approved_by_name, details: `${req.body.approved_by_name || 'Reviewer'} ${req.body.status || 'reviewed'} a time log` });
       res.json({ id, ...req.body });
     } catch (err) {
       res.status(500).json({ error: 'Failed to create approval' });
@@ -549,14 +643,49 @@ async function startServer() {
   app.post('/api/schedule-requests', async (req, res) => {
     try {
       const [id] = await db('schedule_change_requests').insert(req.body);
+      await createNotifications({
+        roles: ['admin', 'manager'],
+        type: 'approval',
+        title: 'Schedule change request',
+        message: `${req.body.user_name || 'An intern'} submitted a schedule change request for review.`,
+      });
+      await recordActivity({ action: 'SCHEDULE_REQUEST_SUBMITTED', performedBy: req.body.user_id, performedByName: req.body.user_name, targetUser: req.body.user_id, targetUserName: req.body.user_name, details: `${req.body.user_name || 'User'} submitted a schedule-change request` });
       res.json({ id, ...req.body });
     } catch (err) { res.status(500).json({ error: 'Failed to create schedule request' }); }
   });
 
   app.patch('/api/schedule-requests/:id', async (req, res) => {
     try {
-      await db('schedule_change_requests').where({ id: req.params.id }).update(req.body);
-      res.json({ success: true });
+      const request = await db('schedule_change_requests').where({ id: req.params.id }).first();
+      if (!request) return res.status(404).json({ error: 'Schedule request not found' });
+
+      await db.transaction(async (trx) => {
+        await trx('schedule_change_requests').where({ id: req.params.id }).update(req.body);
+
+        // An approved request becomes the intern's active schedule.  Keeping
+        // this in the same transaction prevents an approved request from
+        // being recorded without its schedule actually changing.
+        if (req.body.status === 'approved') {
+          await trx('users').where({ uid: request.user_id }).update({
+            schedule_start: request.requested_time_in,
+            schedule_end: request.requested_time_out,
+          });
+        }
+      });
+
+      if (req.body.status === 'approved' || req.body.status === 'rejected') {
+        await createNotifications({
+          userIds: [request.user_id],
+          type: 'approval',
+          title: req.body.status === 'approved' ? 'Schedule request approved' : 'Schedule request rejected',
+          message: req.body.status === 'approved'
+            ? `Your schedule is now ${request.requested_time_in} - ${request.requested_time_out}.`
+            : 'Your schedule change request was not approved.',
+        });
+      }
+
+      if (req.body.reviewed_by) await recordActivity({ action: `SCHEDULE_REQUEST_${String(req.body.status || 'reviewed').toUpperCase()}`, performedBy: req.body.reviewed_by, performedByName: req.body.reviewed_by_name, targetUser: request?.user_id, targetUserName: request?.user_name, details: `${req.body.reviewed_by_name || 'Reviewer'} ${req.body.status || 'reviewed'} ${request?.user_name || 'a user'}'s schedule request` });
+      res.json({ success: true, schedule_updated: req.body.status === 'approved' });
     } catch (err) { res.status(500).json({ error: 'Failed to update schedule request' }); }
   });
 
@@ -573,13 +702,16 @@ async function startServer() {
   app.post('/api/leave-requests', async (req, res) => {
     try {
       const [id] = await db('leave_requests').insert(req.body);
+      await recordActivity({ action: 'LEAVE_REQUEST_SUBMITTED', performedBy: req.body.user_id, performedByName: req.body.user_name, targetUser: req.body.user_id, targetUserName: req.body.user_name, details: `${req.body.user_name || 'User'} submitted a ${req.body.leave_type || 'leave'} request` });
       res.json({ id, ...req.body });
     } catch (err) { res.status(500).json({ error: 'Failed to create leave request' }); }
   });
 
   app.patch('/api/leave-requests/:id', async (req, res) => {
     try {
+      const request = await db('leave_requests').where({ id: req.params.id }).first();
       await db('leave_requests').where({ id: req.params.id }).update(req.body);
+      if (req.body.reviewed_by) await recordActivity({ action: `LEAVE_REQUEST_${String(req.body.status || 'reviewed').toUpperCase()}`, performedBy: req.body.reviewed_by, performedByName: req.body.reviewed_by_name, targetUser: request?.user_id, targetUserName: request?.user_name, details: `${req.body.reviewed_by_name || 'Reviewer'} ${req.body.status || 'reviewed'} ${request?.user_name || 'a user'}'s ${request?.leave_type || 'leave'} request` });
       res.json({ success: true });
     } catch (err) { res.status(500).json({ error: 'Failed to update leave request' }); }
   });

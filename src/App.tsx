@@ -18,6 +18,8 @@ import ErrorBoundary from './components/ErrorBoundary';
 import DTRGenerator from './pages/attendance/DTRGenerator';
 import Requests from './pages/Requests';
 import AdminRequests from './pages/admin/AdminRequests';
+import AttendanceReport from './pages/reports/AttendanceReport';
+import TaskReport from './pages/reports/TaskReport';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, profile, loading } = useAuth();
@@ -66,6 +68,8 @@ export default function App() {
               <Route path="attendance-logs" element={<AttendanceLogs />} />
               <Route path="logs" element={<TimeLogs />} />
               <Route path="dtr-generator" element={<DTRGenerator />} />
+              <Route path="attendance-report" element={<AttendanceReport />} />
+              <Route path="task-report" element={<TaskReport />} />
               <Route path="requests" element={<Requests />} />
               <Route path="profile" element={<Profile />} />
               <Route
