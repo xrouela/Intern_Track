@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Upload, FileText, Settings, Trash2, CheckCircle, AlertCircle, Plus, Coffee, Moon, Save, RotateCcw } from 'lucide-react';
 import Papa from 'papaparse';
 import { api } from '../../services/apiService';
-import { parseUTCDate } from '../../utils/dateUtils';
+import { parseUTCDate, formatDisplayTime } from '../../utils/dateUtils';
 
 type RowStatus = 'valid' | 'absent' | 'restday' | 'error';
 
@@ -175,8 +175,8 @@ export default function DTRGenerator() {
             const clockOut = shift.clock_out ? parseUTCDate(shift.clock_out) : null;
             return makeRow(
               clockIn.toISOString().slice(0, 10),
-              clockIn.toISOString().slice(11, 16),
-              clockOut ? clockOut.toISOString().slice(11, 16) : '',
+              formatDisplayTime(clockIn),
+              clockOut ? formatDisplayTime(clockOut) : '',
               deductLunch,
               roundHours,
             );
@@ -499,12 +499,12 @@ export default function DTRGenerator() {
                     <td className="px-2 py-1.5">
                       <input type="text" value={row.timeIn} onChange={e => updateRow(row.id, 'timeIn', e.target.value)}
                         className="w-24 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 rounded bg-transparent outline-none text-xs"
-                        placeholder="8:00AM" />
+                        placeholder="8:00 AM" />
                     </td>
                     <td className="px-2 py-1.5">
                       <input type="text" value={row.timeOut} onChange={e => updateRow(row.id, 'timeOut', e.target.value)}
                         className="w-24 px-2 py-1 border border-transparent hover:border-slate-300 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 rounded bg-transparent outline-none text-xs"
-                        placeholder="5:00PM" />
+                        placeholder="5:00 PM" />
                     </td>
                     <td className="px-3 py-1.5 font-semibold text-slate-700 text-xs tabular-nums">{row.hours}</td>
                     <td className="px-3 py-1.5">{statusBadge(row)}</td>

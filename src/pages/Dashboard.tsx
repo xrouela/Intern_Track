@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/apiService';
 import { useAuth } from '../context/AuthContext';
 
 
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { parseUTCDate, formatDuration } from '../utils/dateUtils';
-import { calculateAttendance } from '../utils/attendanceUtils';
+import { parseUTCDate, formatDuration, getDurationInHours } from '../utils/dateUtils';
+import { calculateAttendance, getTrackedHours, getDTRTotalHours } from '../utils/attendanceUtils';
 import {
   Users,
   CheckCircle2,
@@ -17,12 +19,21 @@ import {
   Play,
   Square,
   Timer,
+  Search,
+  Filter,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Bell,
+  Check,
+  LayoutDashboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format } from 'date-fns';
 
 export default function Dashboard() {
   const { profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -51,24 +62,9 @@ export default function Dashboard() {
   const normalizeShiftTime = (dateInput: Date | string | null | undefined) => {
     if (!dateInput) return null;
 
-    const date = typeof dateInput === 'string'
+    return typeof dateInput === 'string'
       ? parseUTCDate(dateInput)
       : new Date(dateInput);
-
-    if (profile?.schedule_start) {
-      const [schedHours = 0, schedMins = 0] = profile.schedule_start.split(':').map(Number);
-      const scheduled = new Date(date);
-      scheduled.setHours(schedHours, schedMins, 0, 0);
-      const minutesFromSchedule = (date.getTime() - scheduled.getTime()) / 60000;
-
-      if (minutesFromSchedule < -120) {
-        const corrected = new Date(date);
-        corrected.setHours(corrected.getHours() + 8);
-        return corrected;
-      }
-    }
-
-    return date;
   };
 
   // ======================
@@ -138,7 +134,12 @@ export default function Dashboard() {
     const clockOut = normalizeShiftTime(shift.clock_out);
     if (!clockIn || !clockOut) return '0.0 hrs';
 
-    const seconds = Math.max(0, Math.round((clockOut.getTime() - clockIn.getTime()) / 1000));
+    let seconds = Math.max(0, Math.round((clockOut.getTime() - clockIn.getTime()) / 1000));
+
+    // Deduct 1 hour for lunch if shift is longer than 5 hours to match DTR
+    if (seconds > 5 * 3600) {
+      seconds -= 3600;
+    }
 
     if (seconds < 60) {
       return `${seconds} sec`;
@@ -353,22 +354,8 @@ export default function Dashboard() {
   const activeTasks = tasks.filter(t => t.status !== 'completed').length;
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
 
-  const manualHours = logs.reduce((acc, log) => acc + (log.rendered_hours || 0), 0);
-  const completedShiftHours = allShifts
-    .filter(s =>
-      s.status === 'completed' &&      // must be completed
-      s.id !== activeShift?.id &&      // must not be the active shift
-      s.clock_out !== null             // must have a clock_out
-    )
-    .reduce((acc, shift) => {
-      if (!shift.clock_in || !shift.clock_out) return acc;
-      const hrs =
-        (new Date(shift.clock_out).getTime() - new Date(shift.clock_in).getTime()) /
-        3600000;
-      return acc + Math.max(0, hrs);
-    }, 0);
-
-  const totalHours = manualHours + completedShiftHours;
+  // Mirror the Attendance Report totals (DTR rules: deduct lunch by default)
+  const totalHours = getDTRTotalHours(logs, allShifts, true, false);
 
   // Internship Progress Calculations
   const requiredHours = profile?.required_hours || 0;
@@ -387,9 +374,11 @@ export default function Dashboard() {
     .filter(u => u.role === 'intern')
     .map(intern => {
       const internLogs = logs.filter(l => l.user_id === intern.uid);
+      const internShifts = allShifts.filter(s => s.user_id === intern.uid && s.status === 'completed' && s.clock_out);
+      const shiftHrs = internShifts.reduce((acc, s) => acc + getDurationInHours(s.clock_in, s.clock_out), 0);
       return {
         name: intern.name,
-        hours: internLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0)
+        hours: internLogs.reduce((acc, l) => acc + (l.rendered_hours || 0), 0) + shiftHrs
       };
     })
     .sort((a, b) => b.hours - a.hours);
@@ -418,6 +407,813 @@ export default function Dashboard() {
     { label: 'Late Today', value: lateToday, icon: Clock, color: 'text-red-600', bg: 'bg-red-50' },
     { label: 'OT Today', value: otToday, icon: Timer, color: 'text-indigo-600', bg: 'bg-indigo-50' },
   ];
+
+  // ==========================================
+  // ADMIN/MANAGER DASHBOARD STATES & SERVICES
+  // ==========================================
+  const [selectedDept, setSelectedDept] = useState('All Departments');
+  const [selectedStatus, setSelectedStatus] = useState('All Status');
+  const [selectedTimeframe, setSelectedTimeframe] = useState('This Week');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  const [dashboardNotificationsOpen, setDashboardNotificationsOpen] = useState(false);
+  const [notificationsList, setNotificationsList] = useState<any[]>([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateRange, setDateRange] = useState('This Week');
+
+  const fetchDashboardNotifications = async () => {
+    if (!profile?.uid) return;
+    try {
+      if (profile.role === 'admin' || profile.role === 'manager') {
+        const allShifts = await api.getShifts(undefined, 'completed');
+        const exceptions = allShifts.filter((s: any) =>
+          (s.is_late || s.is_undertime || s.overtime_hours > 0 || s.is_incomplete) && 
+          s.alert_status !== 'resolved'
+        ).map((s: any) => {
+          let alertTitle = 'Alert';
+          let message = '';
+          if (s.overtime_hours > 2) {
+            alertTitle = 'Critical Overtime';
+            message = `${s.user_name} worked ${(s.net_work_hours || 0).toFixed(1)}h (↑ ${(s.overtime_hours).toFixed(1)}h over limit)`;
+          } else if (s.overtime_hours > 0) {
+            alertTitle = 'Moderate Overtime';
+            message = `${s.user_name} exceeded daily limit by ${(s.overtime_hours).toFixed(1)}h`;
+          } else if (s.is_late) {
+            alertTitle = s.late_minutes > 30 ? 'Significant Latency' : 'Late Clock-in';
+            message = `${s.user_name} clocked in ${s.late_minutes || 0}m past schedule`;
+          } else if (s.is_undertime) {
+            alertTitle = 'Undertime Alert';
+            message = `${s.user_name} finished ${(s.regular_hours || 0).toFixed(1)}h short of goal`;
+          }
+          return {
+            id: s.id,
+            title: alertTitle,
+            message: message,
+            is_read: s.alert_status === 'flagged',
+            is_alert: true
+          };
+        });
+        setNotificationsList(exceptions);
+        setUnreadNotificationsCount(exceptions.filter((n: any) => !n.is_read).length);
+      } else {
+        const data = await api.getNotifications(profile.uid);
+        setNotificationsList(data);
+        setUnreadNotificationsCount(data.filter((n: any) => !n.is_read).length || data.length);
+      }
+    } catch (err) {
+      console.error('Failed to fetch dashboard notifications', err);
+    }
+  };
+
+  useEffect(() => {
+    if (profile && (profile.role === 'admin' || profile.role === 'manager')) {
+      fetchDashboardNotifications();
+      const interval = setInterval(fetchDashboardNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [profile]);
+
+  const markDashboardNotificationRead = async (notification: any) => {
+    if (!profile?.uid) return;
+    try {
+      if (notification.is_alert) {
+        await api.updateShift(notification.id, {
+          alert_status: 'resolved',
+          resolved_at: new Date().toISOString(),
+          resolved_by: profile?.uid
+        });
+      } else {
+        await api.markNotificationRead(notification.id, profile.uid);
+      }
+      fetchDashboardNotifications();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const markAllDashboardNotificationsRead = async () => {
+    if (!profile?.uid) return;
+    try {
+      if (profile.role === 'admin' || profile.role === 'manager') {
+        for (const notification of notificationsList) {
+          if (notification.is_alert && !notification.is_read) {
+            await api.updateShift(notification.id, {
+              alert_status: 'resolved',
+              resolved_at: new Date().toISOString(),
+              resolved_by: profile?.uid
+            });
+          }
+        }
+      } else {
+        await api.markAllNotificationsRead(profile.uid);
+      }
+      fetchDashboardNotifications();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (profile && (profile.role === 'admin' || profile.role === 'manager')) {
+    // 1. KPI Summary calculations
+    const totalInternsCount = allUsers.filter(u => u.role === 'intern').length;
+    const activeTodayCount = allUsers.filter(u => {
+      if (u.role !== 'intern') return false;
+      const userShifts = allShifts.filter(s => s.user_id === u.uid);
+      return userShifts.some(s => {
+        if (s.status === 'active') return true;
+        if (!s.clock_in) return false;
+        return format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+      });
+    }).length;
+
+    const presentTodayCount = allUsers.filter(u => {
+      if (u.role !== 'intern') return false;
+      const userShifts = allShifts.filter(s => s.user_id === u.uid);
+      return userShifts.some(s => {
+        if (!s.clock_in) return false;
+        return format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+      });
+    }).length;
+    const attendanceRate = totalInternsCount > 0 ? Math.round((presentTodayCount / totalInternsCount) * 100) : 0;
+
+    const lateTodayCount = allUsers.filter(u => {
+      if (u.role !== 'intern') return false;
+      const userShifts = allShifts.filter(s => s.user_id === u.uid && s.is_late);
+      return userShifts.some(s => {
+        if (!s.clock_in) return false;
+        return format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
+      });
+    }).length;
+    const lateRate = presentTodayCount > 0 ? Math.round((lateTodayCount / presentTodayCount) * 100) : 0;
+
+    const completedShifts = allShifts.filter(s => s.status === 'completed' || s.clock_in);
+    const onTimeShiftsCount = completedShifts.filter(s => !s.is_late).length;
+    const punctualityRate = completedShifts.length > 0 ? Math.round((onTimeShiftsCount / completedShifts.length) * 100) : 0;
+
+    // 2. Performance Card metrics
+    const completionList = allUsers.filter(u => u.role === 'intern').map(u => {
+      const userLogs = logs.filter(l => l.user_id === u.uid);
+      const userShifts = allShifts.filter(s => s.user_id === u.uid && s.status === 'completed' && s.clock_out);
+      const shiftHrs = userShifts.reduce((sum, s) => sum + getDurationInHours(s.clock_in, s.clock_out), 0);
+      const rendered = userLogs.reduce((sum, l) => sum + (l.rendered_hours || 0), 0) + shiftHrs;
+      const req = u.required_hours || 100;
+      return Math.min(Math.round((rendered / req) * 100), 100);
+    });
+    const avgInternCompletion = completionList.length > 0 ? Math.round(completionList.reduce((a, b) => a + b, 0) / completionList.length) : 0;
+
+    const totalShiftHrs = allShifts.filter(s => s.status === 'completed' && s.clock_out).reduce((sum, s) => sum + getDurationInHours(s.clock_in, s.clock_out), 0);
+    const totalHoursRendered = logs.reduce((sum, l) => sum + (l.rendered_hours || 0), 0) + totalShiftHrs;
+    const totalHoursRequired = allUsers.filter(u => u.role === 'intern').reduce((sum, u) => sum + (u.required_hours || 100), 0);
+    const overallHoursPct = totalHoursRequired > 0 ? Math.min(Math.round((totalHoursRendered / totalHoursRequired) * 100), 100) : 0;
+
+    const completedTasks = tasks.filter(t => t.status === 'completed').length;
+    const totalTasks = tasks.length;
+    const overallTasksPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    // 3. Attendance Doughnut Chart
+    const presentOnTime = Math.max(0, presentTodayCount - lateTodayCount);
+    const doughnutData = [
+      { name: 'Present', value: presentOnTime, color: '#10B981' },
+      { name: 'Late', value: lateTodayCount, color: '#F59E0B' },
+      { name: 'Absent', value: Math.max(0, totalInternsCount - presentTodayCount), color: '#EF4444' },
+      { name: 'Leave', value: 0, color: '#6C4DFF' },
+      { name: 'On Duty', value: activeTodayCount, color: '#3B82F6' }
+    ];
+    const totalDoughnutCount = doughnutData.reduce((sum, item) => sum + item.value, 0);
+
+    // 4. Task Report by Intern
+    const tableData = allUsers.filter(u => u.role === 'intern').map(u => {
+      const internTasks = tasks.filter(t => t.assigned_to === u.uid);
+      const assigned = internTasks.length;
+      const completed = internTasks.filter(t => t.status === 'completed').length;
+      const pending = internTasks.filter(t => t.status === 'pending' || t.status === 'in-progress').length;
+      const overdue = internTasks.filter(t => {
+        const isNotComp = t.status !== 'completed';
+        const isPast = t.end_date && new Date(t.end_date) < new Date();
+        return isNotComp && isPast;
+      }).length;
+      const completionPct = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
+
+      let status = 'Good';
+      if (overdue > 1 || completionPct < 50) {
+        status = 'Critical';
+      } else if (overdue > 0 || completionPct < 80) {
+        status = 'Needs Attention';
+      }
+
+      return {
+        uid: u.uid,
+        name: u.name,
+        photoURL: u.photoURL,
+        department: u.department || 'BSCS',
+        assigned,
+        completed,
+        pending,
+        overdue,
+        completionPct,
+        status
+      };
+    });
+
+    const filteredTableData = tableData.filter(item => {
+      const matchesDept = selectedDept === 'All Departments' || item.department.toLowerCase() === selectedDept.toLowerCase();
+      const matchesStatus = selectedStatus === 'All Status' || item.status.toLowerCase() === selectedStatus.toLowerCase();
+      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesDept && matchesStatus && matchesSearch;
+    });
+
+    const totalTablePages = Math.max(1, Math.ceil(filteredTableData.length / itemsPerPage));
+    const currentTableData = filteredTableData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    // 5. Department Summary
+    const deptList = Array.from(new Set(allUsers.filter(u => u.role === 'intern').map(u => u.department).filter(Boolean)));
+    const totalDepts = deptList.length;
+    const deptData = deptList.map(dept => {
+      const deptUsers = allUsers.filter(u => u.role === 'intern' && u.department === dept);
+      const deptUserIds = deptUsers.map(u => u.uid);
+      const deptTasks = tasks.filter(t => deptUserIds.includes(t.assigned_to));
+      const completedDeptTasks = deptTasks.filter(t => t.status === 'completed').length;
+      const totalDeptTasks = deptTasks.length;
+      const completionPct = totalDeptTasks > 0 ? Math.round((completedDeptTasks / totalDeptTasks) * 100) : 90;
+      return {
+        name: dept,
+        interns: deptUsers.length,
+        completionPct
+      };
+    });
+
+    const finalDeptData = deptData;
+
+    // 6. Attendance Trend
+    const weeklyAttendanceData = Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      const dateStr = format(d, 'yyyy-MM-dd');
+      const shiftsOnDate = allShifts.filter(s => s.clock_in && format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') === dateStr);
+      const Present = shiftsOnDate.length;
+      const Late = shiftsOnDate.filter(s => s.is_late).length;
+      const Absent = Math.max(0, totalInternsCount - Present);
+      return {
+        name: format(d, 'MMM dd'),
+        Present,
+        Late,
+        Absent,
+        Leave: 0,
+        'On Duty': shiftsOnDate.filter(s => s.status === 'active').length
+      };
+    });
+
+    // 7. Monthly Task Completion
+    const monthlyCompletionData = Array.from({ length: 6 }).map((_, i) => {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (5 - i));
+      const monthStr = format(d, 'yyyy-MM');
+      const monthTasks = tasks.filter(t => t.created_at && typeof t.created_at === 'string' && t.created_at.startsWith(monthStr));
+      const completed = monthTasks.filter(t => t.status === 'completed').length;
+      const completionPct = monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0;
+      return {
+        name: format(d, 'MMM'),
+        'Completion %': completionPct
+      };
+    });
+
+    return (
+      <div className="space-y-8 bg-slate-50/50 p-6 min-h-screen">
+        {/* Top Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h1>
+            <p className="text-slate-500 text-sm mt-1">Monitor attendance, intern productivity, and task completion in real time.</p>
+          </div>
+          <div className="flex items-center gap-3 w-full md:w-auto self-stretch md:self-auto justify-end">
+            {/* Date Range Picker */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-700 text-sm font-semibold hover:border-indigo-300 hover:bg-slate-50/50 transition-all shadow-sm"
+              >
+                <Calendar size={16} className="text-indigo-500" />
+                <span>{dateRange}</span>
+              </button>
+              {showDatePicker && (
+                <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-50 w-56 flex flex-col gap-1">
+                  {[
+                    'Today',
+                    'This Week',
+                    'This Month',
+                    `${format(new Date(new Date().setDate(new Date().getDate() - 7)), 'MMM dd')} – ${format(new Date(), 'MMM dd, yyyy')}`,
+                    `${format(new Date(new Date().setDate(new Date().getDate() - 30)), 'MMM dd')} – ${format(new Date(), 'MMM dd, yyyy')}`
+                  ].map((rangeOption) => (
+                    <button
+                      key={rangeOption}
+                      onClick={() => {
+                        setDateRange(rangeOption);
+                        setShowDatePicker(false);
+                      }}
+                      className="text-left px-3 py-2 hover:bg-indigo-50 rounded-lg text-xs font-semibold text-slate-700 transition-colors"
+                    >
+                      {rangeOption}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Notification Bell */}
+            <div className="relative">
+              <button 
+                onClick={() => setDashboardNotificationsOpen(!dashboardNotificationsOpen)}
+                className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50/50 rounded-xl border border-slate-200 bg-white transition-all shadow-sm relative"
+              >
+                <Bell size={18} />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-5 h-5 rounded-full border-2 border-white flex items-center justify-center">
+                    {unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+              {dashboardNotificationsOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-50 flex flex-col max-h-[400px]">
+                  <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+                    <h3 className="font-bold text-slate-800 text-sm">Notifications</h3>
+                    {unreadNotificationsCount > 0 && (
+                      <button 
+                        onClick={markAllDashboardNotificationsRead}
+                        className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 transition-colors"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-y-auto custom-scrollbar flex-1 max-h-[300px]">
+                    {notificationsList.length > 0 ? (
+                      notificationsList.map(notification => (
+                        <div 
+                          key={notification.id}
+                          onClick={() => markDashboardNotificationRead(notification)}
+                          className="p-4 border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer bg-indigo-50/[0.02]"
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <div className="text-sm font-semibold text-slate-800">
+                              {notification.title}
+                            </div>
+                            {!notification.is_read && (
+                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 mt-1.5 shrink-0"></div>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {notification.message}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center text-sm font-medium text-slate-500">
+                        No notifications.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* First Row – KPI Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Total Members */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all group">
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Members</span>
+              <h3 className="text-3xl font-black text-slate-900">{totalInternsCount}</h3>
+              <p className="text-xs font-bold text-indigo-600 bg-indigo-50/50 px-2.5 py-0.5 rounded-full inline-block">Active Today: {activeTodayCount}</p>
+            </div>
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform shadow-inner">
+              <Users size={20} />
+            </div>
+          </div>
+
+          {/* Present Today */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all group">
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Present Today</span>
+              <h3 className="text-3xl font-black text-slate-900">{presentTodayCount}</h3>
+              <p className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full inline-block">{attendanceRate}% of members</p>
+            </div>
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-50 to-emerald-100 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform shadow-inner">
+              <CheckCircle2 size={20} />
+            </div>
+          </div>
+
+          {/* Late Today */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all group">
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Late Today</span>
+              <h3 className="text-3xl font-black text-slate-900">{lateTodayCount}</h3>
+              <p className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full inline-block">{lateRate}% of present</p>
+            </div>
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-50 to-amber-100 flex items-center justify-center text-amber-600 group-hover:scale-110 transition-transform shadow-inner">
+              <Clock size={20} />
+            </div>
+          </div>
+
+          {/* Punctuality Rate */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all group">
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Punctuality Rate</span>
+              <h3 className="text-3xl font-black text-slate-900">{punctualityRate}%</h3>
+              <p className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block">On time / Present</p>
+            </div>
+            {/* Circular Progress Indicator */}
+            <div className="relative w-12 h-12 flex items-center justify-center">
+              <svg className="w-full h-full transform -rotate-90">
+                <circle cx="24" cy="24" r="18" stroke="#f1f5f9" strokeWidth="3" fill="transparent" />
+                <circle 
+                  cx="24" 
+                  cy="24" 
+                  r="18" 
+                  stroke="#3B82F6" 
+                  strokeWidth="3" 
+                  fill="transparent"
+                  strokeDasharray={2 * Math.PI * 18}
+                  strokeDashoffset={2 * Math.PI * 18 * (1 - punctualityRate / 100)}
+                  strokeLinecap="round" 
+                  className="transition-all duration-500" 
+                />
+              </svg>
+              <div className="absolute text-[10px] font-bold text-blue-600">
+                <Clock size={14} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Second Row – Performance Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Intern Completion (Average) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 hover:shadow-md transition-all">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-semibold text-slate-600">Intern Completion (Average)</span>
+              <span className="text-lg font-black text-indigo-600">{avgInternCompletion}%</span>
+            </div>
+            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+              <div 
+                className="bg-indigo-600 h-full rounded-full transition-all duration-1000" 
+                style={{ width: `${avgInternCompletion}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Intern Overall Progress (Hours) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 hover:shadow-md transition-all">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-semibold text-slate-600">Intern Overall Progress (Hours)</span>
+              <span className="text-lg font-black text-emerald-600">{overallHoursPct}%</span>
+            </div>
+            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+              <div 
+                className="bg-emerald-500 h-full rounded-full transition-all duration-1000" 
+                style={{ width: `${overallHoursPct}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Tasks Completion (Overall) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4 hover:shadow-md transition-all">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-semibold text-slate-600">Tasks Completion (Overall)</span>
+              <span className="text-lg font-black text-blue-600">{overallTasksPct}%</span>
+            </div>
+            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+              <div 
+                className="bg-blue-500 h-full rounded-full transition-all duration-1000" 
+                style={{ width: `${overallTasksPct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Third Row – Attendance & Tasks */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Attendance Overview Doughnut Card */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all lg:col-span-1">
+            <h3 className="text-base font-bold text-slate-800 mb-4">Attendance Overview</h3>
+            
+            <div className="relative h-48 flex items-center justify-center">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={doughnutData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={75}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
+                    {doughnutData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => [`${value} Interns`]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-2xl font-black text-slate-800">{totalDoughnutCount}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total</span>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div className="grid grid-cols-2 gap-2 mt-4 text-xs font-semibold text-slate-600">
+              {doughnutData.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: item.color }} />
+                  <span className="truncate">{item.name}</span>
+                  <span className="text-slate-400 font-bold ml-auto">{item.value} ({Math.round(item.value / totalDoughnutCount * 100)}%)</span>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => navigate('/logs')}
+              className="mt-6 w-full py-3 bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 group"
+            >
+              <span>View Full Attendance</span>
+              <span className="transform group-hover:translate-x-1 transition-transform">→</span>
+            </button>
+          </div>
+
+          {/* Task Report by Intern Data Table */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all lg:col-span-2 overflow-hidden">
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-base font-bold text-slate-800">Task Report by Intern</h3>
+              </div>
+
+              {/* Top Controls/Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 mb-4">
+                {/* Department Filter */}
+                <select
+                  value={selectedDept}
+                  onChange={(e) => { setSelectedDept(e.target.value); setCurrentPage(1); }}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-400"
+                >
+                  <option value="All Departments">All Departments</option>
+                  <option value="BSCS">BSCS</option>
+                  <option value="BSIT">BSIT</option>
+                  <option value="Engineering">Engineering</option>
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => { setSelectedStatus(e.target.value); setCurrentPage(1); }}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-400"
+                >
+                  <option value="All Status">All Status</option>
+                  <option value="Good">Good</option>
+                  <option value="Needs Attention">Needs Attention</option>
+                  <option value="Critical">Critical</option>
+                </select>
+
+                {/* Date Filter */}
+                <select
+                  value={selectedTimeframe}
+                  onChange={(e) => setSelectedTimeframe(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-400"
+                >
+                  <option value="This Week">This Week</option>
+                  <option value="This Month">This Month</option>
+                  <option value="All Time">All Time</option>
+                </select>
+
+                {/* Search Field */}
+                <div className="relative sm:col-span-2">
+                  <input
+                    type="text"
+                    placeholder="Search intern..."
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:border-indigo-400 placeholder-slate-400"
+                  />
+                  <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                </div>
+              </div>
+
+              {/* Table Container */}
+              <div className="overflow-x-auto min-h-[280px]">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0 bg-white z-10">
+                      <th className="pb-3 pr-2">Intern</th>
+                      <th className="pb-3 px-2 text-center">Assigned</th>
+                      <th className="pb-3 px-2 text-center">Completed</th>
+                      <th className="pb-3 px-2 text-center">Pending</th>
+                      <th className="pb-3 px-2 text-center">Overdue</th>
+                      <th className="pb-3 px-2">Completion %</th>
+                      <th className="pb-3 pl-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-xs font-semibold text-slate-700">
+                    {currentTableData.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3.5 pr-2 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold overflow-hidden flex items-center justify-center shrink-0 border border-slate-100">
+                            {row.photoURL ? (
+                              <img src={row.photoURL} alt={row.name} className="w-full h-full object-cover" />
+                            ) : (
+                              row.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2)
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 truncate">{row.name}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{row.department}</p>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-2 text-center font-bold text-slate-500">{row.assigned}</td>
+                        <td className="py-3.5 px-2 text-center font-bold text-emerald-600">{row.completed}</td>
+                        <td className="py-3.5 px-2 text-center font-bold text-amber-500">{row.pending}</td>
+                        <td className="py-3.5 px-2 text-center font-bold text-red-500">{row.overdue}</td>
+                        <td className="py-3.5 px-2 min-w-[120px]">
+                          <div className="flex items-center gap-2">
+                            <span className="w-8 text-right font-black">{row.completionPct}%</span>
+                            <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div 
+                                className="bg-indigo-600 h-full rounded-full transition-all"
+                                style={{ width: `${row.completionPct}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 pl-2">
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-black tracking-tight ${
+                            row.status === 'Good' 
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                              : row.status === 'Needs Attention' 
+                                ? 'bg-amber-50 text-amber-700 border border-amber-100' 
+                                : 'bg-red-50 text-red-700 border border-red-100'
+                          }`}>
+                            {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {currentTableData.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-400 font-medium">
+                          No intern data matches the current filters.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex justify-between items-center pt-4 border-t border-slate-100 text-xs font-semibold text-slate-500">
+              <span>Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredTableData.length)} of {filteredTableData.length} entries</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(currentPage - 1)}
+                  className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50/50 disabled:opacity-50 disabled:pointer-events-none transition-all"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                {Array.from({ length: totalTablePages }).map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`w-7 h-7 rounded-lg font-bold flex items-center justify-center border transition-all ${
+                      currentPage === i + 1
+                        ? 'bg-indigo-600 border-indigo-600 text-white'
+                        : 'border-slate-200 hover:bg-slate-50/50 text-slate-600'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+                <button
+                  disabled={currentPage === totalTablePages}
+                  onClick={() => setCurrentPage(currentPage + 1)}
+                  className="p-1.5 border border-slate-200 rounded-lg hover:bg-slate-50/50 disabled:opacity-50 disabled:pointer-events-none transition-all"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Fourth Row – Department Summary, Weekly Trend & Monthly area charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Department Summary Card */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+            <div>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-base font-bold text-slate-800">Department Summary</h3>
+                <button 
+                  onClick={() => navigate('/users')}
+                  className="text-xs font-bold text-indigo-600 hover:underline"
+                >
+                  View All
+                </button>
+              </div>
+              <div className="space-y-4">
+                {finalDeptData.map((dept, idx) => (
+                  <div key={idx} className="space-y-2">
+                    <div className="flex justify-between text-xs font-semibold text-slate-600">
+                      <div>
+                        <span className="font-bold text-slate-800">{dept.name}</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase ml-2">{dept.interns} Interns</span>
+                      </div>
+                      <span className="font-black text-indigo-600">{dept.completionPct}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-1000 ${
+                          idx === 0 
+                            ? 'bg-emerald-500' 
+                            : idx === 1 
+                              ? 'bg-blue-500' 
+                              : 'bg-indigo-600'
+                        }`}
+                        style={{ width: `${dept.completionPct}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="pt-6 border-t border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+              Total Departments: {totalDepts}
+            </div>
+          </div>
+
+          {/* Attendance Trend Chart */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+            <div>
+              <h3 className="text-base font-bold text-slate-800 mb-6">Attendance Trend <span className="text-xs font-medium text-slate-400">(This Week)</span></h3>
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={weeklyAttendanceData}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
+                    <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '11px' }} />
+                    <Line type="monotone" dataKey="Present" stroke="#10B981" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="Late" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="Absent" stroke="#EF4444" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="Leave" stroke="#6C4DFF" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Line type="monotone" dataKey="On Duty" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            {/* Color-coded Legend */}
+            <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10B981]" /> Present</div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#F59E0B]" /> Late</div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#EF4444]" /> Absent</div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#6C4DFF]" /> Leave</div>
+              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3B82F6]" /> On Duty</div>
+            </div>
+          </div>
+
+          {/* Monthly Task Completion Chart */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+            <div>
+              <h3 className="text-base font-bold text-slate-800 mb-6">Monthly Task Completion</h3>
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyCompletionData}>
+                    <defs>
+                      <linearGradient id="colorCompletion" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6C4DFF" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#6C4DFF" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
+                    <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '11px' }} />
+                    <Area type="monotone" dataKey="Completion %" stroke="#6C4DFF" strokeWidth={2.5} fillOpacity={1} fill="url(#colorCompletion)" dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="flex justify-center mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+              <div className="flex items-center gap-1"><span className="w-2.5 h-1.5 rounded-sm bg-[#6C4DFF]" /> Completion %</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -725,128 +1521,106 @@ export default function Dashboard() {
                 <h3 className="text-[16px] font-semibold text-text-main">Recent Attendance</h3>
                 <p className="text-[11px] text-slate-500 font-medium">Your latest completed clock-in records</p>
               </div>
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {allShifts.filter(s => s.status === 'completed').slice(-6).reverse().map((shift, idx) => {
-                  const primaryStatus = getShiftStatus(shift);
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead className="bg-[#fdfdfd] border-b border-border-theme">
+                    <tr>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Date</th>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Time In</th>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Time Out</th>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Total Hours</th>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Total Late Time</th>
+                      <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-theme">
+                    {allShifts.filter(s => s.status === 'completed').slice(-6).reverse().map((shift, idx) => {
+                      const primaryStatus = getShiftStatus(shift);
 
-                  return (
-                    <div key={idx} className="p-4 border border-slate-100 rounded-xl bg-white shadow-sm flex flex-col gap-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Date</p>
-                          <p className="text-sm font-bold text-slate-800">
-                            {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'EEE, MMM d') : 'No date'}
-                          </p>
-                        </div>
-                        <span className={"shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide " + primaryStatus.classes}>
-                          {primaryStatus.label}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-left">
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time In</p>
-                          <p className="text-sm font-semibold text-slate-800">{shift.clock_in ? formatManilaTime(shift.clock_in) : '--:--'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time Out</p>
-                          <p className="text-sm font-semibold text-slate-800">{shift.clock_out ? formatManilaTime(shift.clock_out) : '--:--'}</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Hours</span>
-                        <span className="text-sm font-black text-slate-800">{formatShiftDuration(shift)}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 uppercase tracking-wider pt-2">
-                        <span className="font-bold">Total Late Time</span>
-                        <span className="font-bold text-slate-800">{formatLateDuration(shift)}</span>
-                      </div>
-
-                    </div>
-                  );
-                })}
-                {allShifts.filter(s => s.status === 'completed').length === 0 && (
-                  <div className="col-span-full py-4 text-center text-[11px] text-text-muted italic">No completed shifts recorded</div>
-                )}
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-5 py-4">
+                            <span className="text-[13px] font-bold text-slate-800">
+                              {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'EEE, MMM d') : 'No date'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className="text-[13px] font-semibold text-slate-700">
+                              {shift.clock_in ? formatManilaTime(shift.clock_in) : '--:--'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className="text-[13px] font-semibold text-slate-700">
+                              {shift.clock_out ? formatManilaTime(shift.clock_out) : '--:--'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className="text-[13px] font-black text-slate-800">
+                              {formatShiftDuration(shift)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className="text-[13px] font-bold text-slate-700">
+                              {formatLateDuration(shift)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className={"shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wide inline-block " + primaryStatus.classes}>
+                              {primaryStatus.label}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {allShifts.filter(s => s.status === 'completed').length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-5 py-10 text-center text-slate-400 italic">No completed shifts recorded</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </div>
 
-        {/* Weekly Logged Hours Chart */}
         <div className="flex flex-col gap-6">
-          {/* Live Activity (Admin/Manager) */}
-          {(profile?.role === 'admin' || profile?.role === 'manager') && (
-            <div className="bg-white rounded-[12px] border border-border-theme flex flex-col">
-              <div className="px-5 py-4 border-b border-border-theme flex items-center justify-between">
-                <h3 className="text-[14px] font-bold text-text-main flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                  Live Activity
-                </h3>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Realtime</span>
-              </div>
-              <div className="p-4 space-y-3">
-                {allUsers.filter(u => u.active_task).length > 0 ? (
-                  allUsers.filter(u => u.active_task).map(user => {
-                    const start = new Date(user.active_task.start_time);
-                    const mins = Math.floor((now.getTime() - start.getTime()) / 60000);
-                    return (
-                      <div key={user.uid} className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
-                        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
-                          {user.name?.split(' ').map((n: string) => n[0]).join('')}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
-                          <p className="text-[10px] text-indigo-600 font-medium truncate">{user.active_task.task_title}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] font-bold text-indigo-600">{mins}m</p>
-                          <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter">Active</p>
-                        </div>
+          {/* Live Activity (Co-Interns & Admin/Manager) */}
+          <div className="bg-white rounded-[12px] border border-border-theme flex flex-col h-full max-h-[600px]">
+            <div className="px-5 py-4 border-b border-border-theme flex items-center justify-between bg-slate-50/50">
+              <h3 className="text-[14px] font-bold text-text-main flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                Live Activity
+              </h3>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Realtime</span>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto custom-scrollbar flex-1">
+              {allUsers.filter(u => u.active_task && u.uid !== profile?.uid).length > 0 ? (
+                allUsers.filter(u => u.active_task && u.uid !== profile?.uid).map(user => {
+                  const start = new Date(user.active_task.start_time);
+                  const mins = Math.floor((now.getTime() - start.getTime()) / 60000);
+                  return (
+                    <div key={user.uid} className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
+                        {user.name?.split(' ').map((n: string) => n[0]).join('')}
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="py-6 text-center text-slate-400 space-y-2">
-                    <Clock size={20} className="mx-auto opacity-20" />
-                    <p className="text-[11px] font-medium">No interns active right now</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="bg-white rounded-[12px] border border-border-theme flex flex-col">
-            <div className="px-5 py-4 border-b border-border-theme">
-              <h3 className="text-[16px] font-semibold text-text-main">Weekly Logged Hours</h3>
-            </div>
-            <div className="p-5 h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={internHoursData.slice(0, 5)}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b' }} />
-                  <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b' }} />
-                  <Tooltip
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                  />
-                  <Bar dataKey="hours" fill="#2563eb" radius={[4, 4, 0, 0]} barSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="p-5 border-t border-border-theme">
-              <div className="text-[12px] text-text-muted uppercase tracking-[0.05em] font-semibold mb-3">Recent Log Approvals</div>
-              <div className="flex flex-col gap-2">
-                {logs.slice(0, 2).map((log, idx) => (
-                  <div key={idx} className="flex justify-between items-center text-[12px]">
-                    <span className="text-text-main">{log.user_name} ({log.rendered_hours}h)</span>
-                    <span className="status-pill status-success">Approved</span>
-                  </div>
-                ))}
-                {logs.length === 0 && <div className="text-[11px] text-text-muted italic">No recent logs</div>}
-              </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate">{user.name}</p>
+                        <p className="text-[10px] text-indigo-600 font-medium truncate">{user.active_task.task_title}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-indigo-600">{mins}m</p>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-tighter">Active</p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-6 text-center text-slate-400 space-y-2">
+                  <Clock size={20} className="mx-auto opacity-20" />
+                  <p className="text-[11px] font-medium">No co-interns active right now</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

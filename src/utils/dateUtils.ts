@@ -1,3 +1,5 @@
+import { format as formatDate } from 'date-fns';
+
 /**
  * Robust UTC Date Parser for Asia/Manila (UTC+8) environment
  * Prevents the classic 8-hour offset bug
@@ -48,10 +50,43 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
+ * Format a time value using standard 12-hour AM/PM display.
+ */
+export function formatDisplayTime(value: any): string {
+  if (!value && value !== 0) return '--:--';
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '--:--';
+
+    if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(trimmed)) {
+      const [hours, minutes] = trimmed.split(':').map(Number);
+      return formatDate(new Date(2000, 0, 1, hours, minutes, 0), 'h:mm a');
+    }
+
+    const parsed = parseUTCDate(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      return formatDate(parsed, 'h:mm a');
+    }
+
+    return trimmed;
+  }
+
+  if (value instanceof Date) {
+    return formatDate(value, 'h:mm a');
+  }
+
+  return String(value);
+}
+
+/**
  * Get duration in hours between two dates
  */
 export function getDurationInHours(start: any, end: any): number {
+  if (!start || !end) return 0;
   const startTime = parseUTCDate(start).getTime();
   const endTime = parseUTCDate(end).getTime();
-  return Math.max(0, (endTime - startTime) / (1000 * 3600));
+  let hrs = (endTime - startTime) / (1000 * 3600);
+  if (hrs > 5) hrs -= 1;
+  return Math.max(0, hrs);
 }

@@ -124,7 +124,7 @@ export default function Layout() {
             { name: 'Task Report', path: '/task-report' }
           ]
         },
-        { name: 'My Requests', path: '/requests', icon: Inbox, roles: ['intern'] },
+        { name: 'Requests', path: '/requests', icon: Inbox, roles: ['intern'] },
         { name: 'Profile', path: '/profile', icon: UserCircle, roles: ['admin', 'manager', 'intern'] },
       ]
     },
@@ -138,24 +138,16 @@ export default function Layout() {
       ]
     },
     {
-      label: 'Reports & Alerts',
+      label: 'Reports',
       roles: ['admin', 'manager'],
       items: [
-        { name: 'Quick Alerts', path: '/alerts', icon: Bell, roles: ['admin', 'manager'] },
         { name: 'Shift Reports', path: '/reports', icon: BarChart3, roles: ['admin', 'manager'] },
-      ]
-    },
-    {
-      label: 'System',
-      roles: ['admin', 'manager'],
-      items: [
-        { name: 'Admin Overview', path: '/admin', icon: Shield, roles: ['admin', 'manager'] },
       ]
     }
   ];
 
   const flattenedItems = menuGroups.flatMap(g => 
-    g.items.flatMap(item => {
+    g.items.flatMap((item: any) => {
       if (item.children) {
         return [{ name: item.name, path: item.children[0].path }, ...item.children];
       }
@@ -197,7 +189,7 @@ export default function Layout() {
                     <div className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
                       {group.label}
                     </div>
-                    {visibleItems.map((item, iIdx) => {
+                    {visibleItems.map((item: any, iIdx) => {
                       if (item.children) {
                         return (
                           <div key={iIdx} className="space-y-1">
@@ -222,7 +214,7 @@ export default function Layout() {
                               className={`overflow-hidden transition-all duration-300 ease-in-out ${reportsOpen ? 'max-h-40 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}
                             >
                               <div className="pl-4 pr-2 py-1 space-y-1 border-l-2 border-slate-100 ml-6">
-                                {item.children.map((child) => (
+                                {item.children.map((child: any) => (
                                   <NavLink
                                     key={child.path}
                                     to={child.path}
@@ -315,14 +307,14 @@ export default function Layout() {
             </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 bg-white border-bottom border-border-theme flex items-center justify-between pl-16 pr-8 lg:px-8 shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="text-sm font-semibold text-text-main">
-              {flattenedItems.find(item => item.path === window.location.pathname)?.name || 'Admin Overview'}
+        {!(location.pathname === '/' && (profile?.role === 'admin' || profile?.role === 'manager')) && (
+          <header className="h-16 bg-white border-bottom border-border-theme flex items-center justify-between pl-16 pr-8 lg:px-8 shrink-0">
+            <div className="flex items-center gap-4">
+              <div className="text-sm font-semibold text-text-main">
+                {flattenedItems.find(item => item.path === window.location.pathname)?.name || 'Dashboard Overview'}
+              </div>
             </div>
-          </div>
           <div className="flex items-center gap-4">
             <div className="relative">
               <button 
@@ -382,6 +374,7 @@ export default function Layout() {
             </div>
           </div>
         </header>
+        )}
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-8 max-w-7xl mx-auto w-full">

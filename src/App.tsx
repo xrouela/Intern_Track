@@ -40,10 +40,6 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
 }
 
 function Home() {
-  const { profile } = useAuth();
-  if (profile?.role === 'admin' || profile?.role === 'manager') {
-    return <Navigate to="/admin" replace />;
-  }
   return <Dashboard />;
 }
 
@@ -72,14 +68,7 @@ export default function App() {
               <Route path="task-report" element={<TaskReport />} />
               <Route path="requests" element={<Requests />} />
               <Route path="profile" element={<Profile />} />
-              <Route
-                path="admin"
-                element={
-                  <ProtectedRoute roles={['admin', 'manager']}>
-                    <Admin />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="admin" element={<Navigate to="/" replace />} />
               <Route
                 path="users"
                 element={

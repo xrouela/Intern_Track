@@ -8,7 +8,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import Papa from 'papaparse';
 import { calculateAttendance } from '../../utils/attendanceUtils';
-import { parseUTCDate } from '../../utils/dateUtils';
+import { parseUTCDate, formatDisplayTime } from '../../utils/dateUtils';
 
 export default function TimeLogs() {
   const { profile } = useAuth();
@@ -215,8 +215,8 @@ export default function TimeLogs() {
         Date: s.clock_in ? format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') : 'N/A',
         User: s.user_name,
         Task: 'Shift Presence',
-        'Start Time': s.clock_in ? format(parseUTCDate(s.clock_in), 'HH:mm') : 'N/A',
-        'End Time': s.clock_out ? format(parseUTCDate(s.clock_out), 'HH:mm') : 'Active',
+        'Start Time': s.clock_in ? formatDisplayTime(parseUTCDate(s.clock_in)) : 'N/A',
+        'End Time': s.clock_out ? formatDisplayTime(parseUTCDate(s.clock_out)) : 'Active',
         'Rendered Hours': (s.total_hours || 0).toFixed(2),
         Status: s.status,
         Description: `Shift recorded through clock in/out`
@@ -789,10 +789,10 @@ export default function TimeLogs() {
                       </div>
                     </td>
                     <td className="px-5 py-4 text-xs text-text-muted">
-                      {shift.clock_in ? format(parseUTCDate(shift.clock_in), 'HH:mm:ss') : '--:--'}
+                      {shift.clock_in ? formatDisplayTime(parseUTCDate(shift.clock_in)) : '--:--'}
                     </td>
                     <td className="px-5 py-4 text-xs text-text-muted">
-                      {shift.clock_out ? format(parseUTCDate(shift.clock_out), 'HH:mm:ss') : (shift.status === 'active' ? 'Active now...' : '--:--')}
+                      {shift.clock_out ? formatDisplayTime(parseUTCDate(shift.clock_out)) : (shift.status === 'active' ? 'Active now...' : '--:--')}
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap text-center">
                       <div className="flex flex-col items-center">
