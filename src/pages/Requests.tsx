@@ -155,7 +155,7 @@ export default function Requests() {
   return (
     <div className="space-y-6 pb-12">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">My Requests</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Requests</h1>
         <p className="text-slate-500 text-sm">Submit schedule change or leave of absence requests.</p>
       </div>
 

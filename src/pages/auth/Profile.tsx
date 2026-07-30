@@ -9,6 +9,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '../../services/apiService';
 import { format } from 'date-fns';
+import { getDTRTotalHours } from '../../utils/attendanceUtils';
 
 export default function Profile() {
   const { profile, refreshProfile } = useAuth();
@@ -22,13 +23,6 @@ export default function Profile() {
   const [editedSchool, setEditedSchool] = useState('');
   const [editedProgram, setEditedProgram] = useState('');
   const [editedYear, setEditedYear] = useState('');
-  const [editedEmName, setEditedEmName] = useState('');
-  const [editedEmRelation, setEditedEmRelation] = useState('');
-  const [editedEmPhone, setEditedEmPhone] = useState('');
-  const [editedEmEmail, setEditedEmEmail] = useState('');
-  const [editedEmLocation, setEditedEmLocation] = useState('');
-  const [editedSkills, setEditedSkills] = useState<string[]>([]);
-  const [skillInput, setSkillInput] = useState('');
 
   // Change password state
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -69,16 +63,6 @@ export default function Profile() {
       setEditedSchool(profile.school || '');
       setEditedProgram(profile.program || '');
       setEditedYear(profile.year_level || '');
-      setEditedEmName(profile.emergency_contact_name || '');
-      setEditedEmRelation(profile.emergency_contact_relation || '');
-      setEditedEmPhone(profile.emergency_contact_phone || '');
-      setEditedEmEmail(profile.emergency_contact_email || '');
-      setEditedEmLocation(profile.emergency_contact_location || '');
-      try {
-        setEditedSkills(typeof profile.skills === 'string' ? JSON.parse(profile.skills) : (profile.skills || ['HTML', 'CSS', 'JavaScript']));
-      } catch (e) {
-        setEditedSkills(['HTML', 'CSS', 'JavaScript']);
-      }
     }
   }, [profile]);
 
@@ -91,13 +75,7 @@ export default function Profile() {
         name: editedName,
         school: editedSchool,
         program: editedProgram,
-        year_level: editedYear,
-        emergency_contact_name: editedEmName,
-        emergency_contact_relation: editedEmRelation,
-        emergency_contact_phone: editedEmPhone,
-        emergency_contact_email: editedEmEmail,
-        emergency_contact_location: editedEmLocation,
-        skills: editedSkills
+        year_level: editedYear
       });
       await refreshProfile();
       setIsEditing(false);
@@ -154,9 +132,8 @@ export default function Profile() {
         completed: tasks.filter((t: any) => t.status === 'completed').length
       });
 
-      const taskHours = logs.reduce((acc: number, log: any) => acc + (log.rendered_hours || 0), 0);
-      const shiftHours = shifts.reduce((acc: number, shift: any) => acc + (shift.total_hours || 0), 0);
-      setTotalHours(taskHours + shiftHours);
+      // Match the Attendance Report DTR calculation for displayed hours
+      setTotalHours(getDTRTotalHours(logs, shifts, true, false));
     } catch (err) {
       console.error('Failed to fetch profile stats:', err);
     }
@@ -172,10 +149,6 @@ export default function Profile() {
   const remHours = Math.max(reqHours - totalHours, 0);
   const progressPercent = reqHours > 0 ? Math.min(Math.round((totalHours / reqHours) * 100), 100) : 100;
   
-  const mockDocs: any[] = [];
-
-  const getDocStatusColor = (status: string) => status === 'Verified' ? 'text-emerald-500 bg-emerald-50' : 'text-blue-500 bg-blue-50';
-
   return (
     <div className="w-full h-full p-4 lg:p-8 overflow-y-auto">
       {/* Top Actions */}
@@ -399,96 +372,11 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* Documents */}
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <FileCheck2 size={20} className="text-slate-400" /> Documents
-              </h3>
-              <button className="text-xs font-bold text-primary hover:underline">View All</button>
-            </div>
-            
-            <div className="space-y-4">
-              {mockDocs.map((doc, idx) => (
-                <div key={idx} className="flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <FileText size={32} className="text-red-400" strokeWidth={1.5} />
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">{doc.name}</p>
-                      <p className="text-[10px] text-slate-400">Uploaded on {doc.date}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${getDocStatusColor(doc.status)}`}>
-                      {doc.status}
-                    </span>
-                    <button className="text-slate-400 hover:text-slate-600">
-                      <span className="flex flex-col gap-0.5">
-                        <span className="w-1 h-1 bg-current rounded-full"></span>
-                        <span className="w-1 h-1 bg-current rounded-full"></span>
-                        <span className="w-1 h-1 bg-current rounded-full"></span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
         </div>
 
         {/* RIGHT COLUMN */}
         <div className="lg:col-span-7 space-y-8">
           
-          {/* Account Security */}
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-            <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
-              <Shield size={20} className="text-slate-400" /> Account Security
-            </h3>
-            
-            <div className="space-y-4 text-sm">
-              <div className="flex justify-between items-center py-2 border-b border-slate-50 border-dashed">
-                <span className="flex items-center gap-2 text-slate-500"><KeyRound size={16} /> Password Status</span>
-                <span className="text-xs font-bold text-emerald-500 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">
-                  Strong Password
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-slate-50 border-dashed">
-                <span className="flex items-center gap-2 text-slate-500"><Clock size={16} /> Last Password Change</span>
-                <span className="font-bold text-slate-800">N/A</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-slate-50 border-dashed">
-                <span className="flex items-center gap-2 text-slate-500"><Shield size={16} /> Two-Factor Authentication</span>
-                <div className="w-10 h-5 bg-primary rounded-full relative cursor-pointer shadow-inner">
-                  <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
-                </div>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-slate-50 border-dashed">
-                <span className="flex items-center gap-2 text-slate-500"><Clock4 size={16} /> Last Login</span>
-                <span className="font-bold text-slate-800">N/A</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-slate-50 border-dashed">
-                <span className="flex items-center gap-2 text-slate-500"><User size={16} /> Account Status</span>
-                <span className="flex items-center gap-1.5 font-bold text-slate-800">
-                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span> Active
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-2">
-                <span className="flex items-center gap-2 text-slate-500"><CheckCircle2 size={16} /> Role Permissions</span>
-                <span className="font-bold text-slate-800 capitalize">{profile?.role}</span>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-end">
-              <button 
-                onClick={() => setIsChangingPassword(true)}
-                className="flex items-center gap-2 px-4 py-2 border border-primary/20 text-primary font-bold rounded-xl hover:bg-indigo-50 transition text-sm"
-              >
-                <Shield size={14} /> Manage Security
-              </button>
-            </div>
-          </div>
-
           {/* Internship Timeline */}
           <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
             <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">
@@ -556,53 +444,6 @@ export default function Profile() {
                   <div className="w-4 h-4 bg-white border-2 border-slate-200 rounded-full"></div>
                   <div><p className="font-bold text-slate-400">Completion</p></div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Emergency Contact */}
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 h-full relative">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                  <MapPin size={20} className="text-slate-400" /> Emergency Contact
-                </h3>
-                <button onClick={() => setIsEditing(true)} className="text-xs font-bold text-primary hover:underline">Edit</button>
-              </div>
-              
-              <div className="flex items-center gap-4 mb-4">
-                <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-100 overflow-hidden shrink-0 flex items-center justify-center">
-                   <UserCircle size={40} className="text-primary/50" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    {profile?.emergency_contact_name || 'N/A'} 
-                    <span className="text-[9px] uppercase tracking-wider bg-indigo-50 text-primary px-1.5 py-0.5 rounded-md font-bold">{profile?.emergency_contact_relation || 'N/A'}</span>
-                  </h4>
-                  <div className="mt-2 space-y-1 text-xs text-slate-500">
-                    <p className="flex items-center gap-2"><Smartphone size={12} /> {profile?.emergency_contact_phone || 'N/A'}</p>
-                    <p className="flex items-center gap-2"><Mail size={12} /> {profile?.emergency_contact_email || 'N/A'}</p>
-                    <p className="flex items-center gap-2"><MapPin size={12} /> {profile?.emergency_contact_location || 'N/A'}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Skills */}
-            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 h-full relative">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                  <CheckCircle size={20} className="text-slate-400" /> Skills
-                </h3>
-                <button onClick={() => setIsEditing(true)} className="text-xs font-bold text-primary hover:underline">Edit</button>
-              </div>
-              
-              <div className="flex flex-wrap gap-2">
-                {editedSkills.map((skill, idx) => (
-                  <span key={idx} className="px-3 py-1.5 bg-slate-50 text-primary text-[11px] font-bold rounded-lg border border-slate-100">
-                    {skill}
-                  </span>
-                ))}
               </div>
             </div>
           </div>
@@ -674,114 +515,6 @@ export default function Profile() {
                     </div>
                   </div>
 
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider text-primary">Emergency Contact</h4>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1.5">Name</label>
-                            <input
-                              type="text"
-                              value={editedEmName}
-                              onChange={(e) => setEditedEmName(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                              placeholder="Jane Doe"
-                            />
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1.5">Relation</label>
-                            <input
-                              type="text"
-                              value={editedEmRelation}
-                              onChange={(e) => setEditedEmRelation(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                              placeholder="Mother"
-                            />
-                         </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1.5">Phone</label>
-                            <input
-                              type="text"
-                              value={editedEmPhone}
-                              onChange={(e) => setEditedEmPhone(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                              placeholder="+63..."
-                            />
-                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-slate-500 mb-1.5">Email</label>
-                            <input
-                              type="email"
-                              value={editedEmEmail}
-                              onChange={(e) => setEditedEmEmail(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                              placeholder="jane@email.com"
-                            />
-                         </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-500 mb-1.5">Location</label>
-                        <input
-                          type="text"
-                          value={editedEmLocation}
-                          onChange={(e) => setEditedEmLocation(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                          placeholder="City, Country"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-100">
-                   <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider text-primary">Skills</h4>
-                   <div className="flex gap-2 mb-3">
-                      <input
-                        type="text"
-                        value={skillInput}
-                        onChange={(e) => setSkillInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && skillInput.trim()) {
-                            e.preventDefault();
-                            if (editedSkills.length >= 10) return;
-                            if (!editedSkills.includes(skillInput.trim())) {
-                              setEditedSkills([...editedSkills, skillInput.trim()]);
-                            }
-                            setSkillInput('');
-                          }
-                        }}
-                        className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary focus:bg-white outline-none transition text-sm font-semibold"
-                        placeholder={editedSkills.length >= 10 ? 'Maximum 10 skills reached' : 'Type a skill and press Enter...'}
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => {
-                           if (editedSkills.length >= 10) return;
-                           if (skillInput.trim() && !editedSkills.includes(skillInput.trim())) {
-                              setEditedSkills([...editedSkills, skillInput.trim()]);
-                              setSkillInput('');
-                           }
-                        }}
-                        disabled={editedSkills.length >= 10}
-                        className={`px-4 py-2.5 rounded-xl font-bold text-sm shadow-sm ${editedSkills.length >= 10 ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-primary text-white'}`}
-                      >
-                         Add
-                      </button>
-                   </div>
-                   <div className="flex flex-wrap gap-2">
-                     {editedSkills.map((skill, idx) => (
-                       <span key={idx} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200">
-                         {skill}
-                         <button type="button" onClick={() => setEditedSkills(editedSkills.filter(s => s !== skill))} className="text-slate-400 hover:text-red-500">
-                            <X size={12} />
-                         </button>
-                       </span>
-                     ))}
-                     {editedSkills.length === 0 && <span className="text-xs text-slate-400 italic">No skills added yet.</span>}
-                   </div>
-                   <p className="text-[11px] text-slate-400 mt-3">You can store up to 10 skills.</p>
                 </div>
 
                 <div className="pt-6 mt-auto shrink-0 border-t border-slate-100 flex gap-4">
