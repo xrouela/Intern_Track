@@ -25,6 +25,11 @@ export async function initDb() {
       table.boolean('is_default_password').defaultTo(true);
       table.string('role').notNullable();
       table.string('department');
+      table.string('account_status').notNullable().defaultTo('active');
+      table.text('archive_reason').nullable();
+      table.dateTime('archived_at').nullable();
+      table.string('archived_by').nullable();
+      table.string('archived_by_name').nullable();
       table.string('photoURL');
       table.string('school');
       table.string('program');
@@ -61,6 +66,11 @@ export async function initDb() {
       { col: 'school', add: (t) => t.string('school').nullable() },
       { col: 'skills', add: (t) => t.json('skills').nullable() },
       { col: 'documents', add: (t) => t.json('documents').nullable() },
+      { col: 'account_status', add: (t) => t.string('account_status').notNullable().defaultTo('active') },
+      { col: 'archive_reason', add: (t) => t.text('archive_reason').nullable() },
+      { col: 'archived_at', add: (t) => t.dateTime('archived_at').nullable() },
+      { col: 'archived_by', add: (t) => t.string('archived_by').nullable() },
+      { col: 'archived_by_name', add: (t) => t.string('archived_by_name').nullable() },
     ];
     for (const m of migrations) {
       const exists = await db.schema.hasColumn('users', m.col);
@@ -68,6 +78,30 @@ export async function initDb() {
         await db.schema.table('users', m.add);
       }
     }
+  }
+
+  const hasDepartments = await db.schema.hasTable('departments');
+  if (!hasDepartments) {
+    await db.schema.createTable('departments', (table) => {
+      table.increments('id').primary();
+      table.string('name').notNullable().unique();
+      table.text('description').nullable();
+      table.timestamps(true, true);
+    });
+  }
+
+  const hasFeedback = await db.schema.hasTable('feedback');
+  if (!hasFeedback) {
+    await db.schema.createTable('feedback', (table) => {
+      table.increments('id').primary();
+      table.string('category').notNullable();
+      table.string('reporter_uid').nullable();
+      table.string('reporter_name').nullable();
+      table.string('reporter_role').nullable();
+      table.string('contact_details').nullable();
+      table.text('description').notNullable();
+      table.timestamps(true, true);
+    });
   }
 
   // Audit logs table

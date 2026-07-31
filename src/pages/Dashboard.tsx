@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, Legend
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { parseUTCDate, formatDuration, getDurationInHours } from '../utils/dateUtils';
 import { calculateAttendance, getTrackedHours, getDTRTotalHours } from '../utils/attendanceUtils';
@@ -647,38 +647,24 @@ export default function Dashboard() {
 
     const finalDeptData = deptData;
 
-    // 6. Attendance Trend
-    const weeklyAttendanceData = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (6 - i));
-      const dateStr = format(d, 'yyyy-MM-dd');
-      const shiftsOnDate = allShifts.filter(s => s.clock_in && format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') === dateStr);
-      const Present = shiftsOnDate.length;
-      const Late = shiftsOnDate.filter(s => s.is_late).length;
-      const Absent = Math.max(0, totalInternsCount - Present);
-      return {
-        name: format(d, 'MMM dd'),
-        Present,
-        Late,
-        Absent,
-        Leave: 0,
-        'On Duty': shiftsOnDate.filter(s => s.status === 'active').length
-      };
-    });
-
-    // 7. Monthly Task Completion
-    const monthlyCompletionData = Array.from({ length: 6 }).map((_, i) => {
-      const d = new Date();
-      d.setMonth(d.getMonth() - (5 - i));
-      const monthStr = format(d, 'yyyy-MM');
-      const monthTasks = tasks.filter(t => t.created_at && typeof t.created_at === 'string' && t.created_at.startsWith(monthStr));
-      const completed = monthTasks.filter(t => t.status === 'completed').length;
-      const completionPct = monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0;
-      return {
-        name: format(d, 'MMM'),
-        'Completion %': completionPct
-      };
-    });
+    // 6. Intern Completion Overview
+    const internCompletionOverview = allUsers
+      .filter(u => u.role === 'intern')
+      .map(u => {
+        const internTasks = tasks.filter(t => t.assigned_to === u.uid);
+        const assigned = internTasks.length;
+        const completed = internTasks.filter(t => t.status === 'completed').length;
+        const completionPct = assigned > 0 ? Math.round((completed / assigned) * 100) : 0;
+        return {
+          uid: u.uid,
+          name: u.name,
+          photoURL: u.photoURL,
+          department: u.department || 'Intern',
+          completionPct
+        };
+      })
+      .sort((a, b) => b.completionPct - a.completionPct)
+      .slice(0, 5);
 
     return (
       <div className="space-y-8 bg-slate-50/50 p-6 min-h-screen">
@@ -1154,60 +1140,51 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Attendance Trend Chart */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
-            <div>
-              <h3 className="text-base font-bold text-slate-800 mb-6">Attendance Trend <span className="text-xs font-medium text-slate-400">(This Week)</span></h3>
-              <div className="h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={weeklyAttendanceData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
-                    <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '11px' }} />
-                    <Line type="monotone" dataKey="Present" stroke="#10B981" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="Late" stroke="#F59E0B" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="Absent" stroke="#EF4444" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="Leave" stroke="#6C4DFF" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                    <Line type="monotone" dataKey="On Duty" stroke="#3B82F6" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+          {/* Intern Completion Overview */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all lg:col-span-2">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Intern Completion Overview</h3>
+                <p className="text-sm text-slate-500">Top interns by task completion progress.</p>
               </div>
+              <button
+                onClick={() => navigate('/users')}
+                className="text-xs font-bold text-indigo-600 hover:underline"
+              >
+                View All
+              </button>
             </div>
-            {/* Color-coded Legend */}
-            <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-tight">
-              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#10B981]" /> Present</div>
-              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#F59E0B]" /> Late</div>
-              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#EF4444]" /> Absent</div>
-              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#6C4DFF]" /> Leave</div>
-              <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3B82F6]" /> On Duty</div>
-            </div>
-          </div>
-
-          {/* Monthly Task Completion Chart */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
-            <div>
-              <h3 className="text-base font-bold text-slate-800 mb-6">Monthly Task Completion</h3>
-              <div className="h-44">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={monthlyCompletionData}>
-                    <defs>
-                      <linearGradient id="colorCompletion" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6C4DFF" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#6C4DFF" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} />
-                    <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{ fill: '#64748b', fontWeight: 600 }} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '11px' }} />
-                    <Area type="monotone" dataKey="Completion %" stroke="#6C4DFF" strokeWidth={2.5} fillOpacity={1} fill="url(#colorCompletion)" dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="flex justify-center mt-3 text-[10px] font-bold text-slate-500 uppercase tracking-tight">
-              <div className="flex items-center gap-1"><span className="w-2.5 h-1.5 rounded-sm bg-[#6C4DFF]" /> Completion %</div>
+            <div className="space-y-5">
+              {internCompletionOverview.length > 0 ? (
+                internCompletionOverview.map(intern => (
+                  <div key={intern.uid} className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-slate-400 text-sm font-bold">
+                          {intern.photoURL ? (
+                            <img src={intern.photoURL} alt={intern.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{intern.name.split(' ').map((n: string) => n[0]).join('').slice(0,2)}</span>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{intern.name}</p>
+                          <p className="text-xs text-slate-500">{intern.department}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-indigo-600">{intern.completionPct}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-indigo-600 transition-all duration-1000"
+                        style={{ width: `${intern.completionPct}%` }}
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No intern completion data available.</div>
+              )}
             </div>
           </div>
         </div>

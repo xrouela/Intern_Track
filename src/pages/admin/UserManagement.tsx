@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/apiService';
-import { Shield, Mail, Trash2, Edit2, UserMinus, ShieldAlert, Plus, X, KeyRound, RotateCcw, CheckCircle2, AlertCircle, Hash, User, Copy, Check } from 'lucide-react';
+import { Shield, Mail, Trash2, Edit2, UserMinus, ShieldAlert, Plus, X, KeyRound, RotateCcw, CheckCircle2, AlertCircle, Hash, User, Copy, Check, Archive } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -9,6 +9,7 @@ export default function UserManagement() {
   const [users, setUsers] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [shifts, setShifts] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -30,6 +31,9 @@ export default function UserManagement() {
     employee_id: '',
     role: 'intern' as 'admin' | 'manager' | 'intern',
     department: '',
+    school: '',
+    program: '',
+    year_level: '',
     start_date: '',
     end_date: '',
     required_hours: 0,
@@ -39,14 +43,16 @@ export default function UserManagement() {
 
   const fetchData = async () => {
     try {
-      const [allUsers, allLogs, allShifts] = await Promise.all([
-        api.getUsers(),
-        api.getLogs(),
-        api.getShifts()
+      // Load the account list independently. A temporary issue with logs or
+      // departments must not hide accounts that were already created.
+      const [usersResult, logsResult, shiftsResult, departmentsResult] = await Promise.allSettled([
+        api.getUsers(), api.getLogs(), api.getShifts(), api.getDepartments()
       ]);
-      setUsers(allUsers);
-      setLogs(allLogs);
-      setShifts(allShifts);
+      if (usersResult.status === 'fulfilled') setUsers(usersResult.value);
+      else console.error('Failed to retrieve user accounts:', usersResult.reason);
+      if (logsResult.status === 'fulfilled') setLogs(logsResult.value);
+      if (shiftsResult.status === 'fulfilled') setShifts(shiftsResult.value);
+      if (departmentsResult.status === 'fulfilled') setDepartments(departmentsResult.value);
     } catch (err) {
       console.error('Failed to fetch management data:', err);
     } finally {
@@ -83,6 +89,18 @@ export default function UserManagement() {
     }
   };
 
+  const handleArchiveIntern = async (user: any) => {
+    if (!profile) return;
+    const reason = window.prompt(`Archive ${user.name}? This blocks sign-in but preserves their records. Please provide a reason:`);
+    if (!reason?.trim()) return;
+    try {
+      await api.archiveIntern(user.uid || user.id, profile.uid, reason.trim());
+      fetchData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to archive intern.');
+    }
+  };
+
   // Auto-generate username from full name
   const generateUsername = (name: string) => {
     return name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -97,6 +115,9 @@ export default function UserManagement() {
       employee_id: user.employee_id || '',
       role: (user.role as any) || 'intern',
       department: user.department || '',
+      school: user.school || '',
+      program: user.program || '',
+      year_level: user.year_level || '',
       start_date: user.start_date || '',
       end_date: user.end_date || '',
       required_hours: user.required_hours || 0,
@@ -115,6 +136,9 @@ export default function UserManagement() {
       employee_id: '',
       role: 'intern',
       department: '',
+      school: '',
+      program: '',
+      year_level: '',
       start_date: '',
       end_date: '',
       required_hours: 0,
@@ -177,7 +201,7 @@ export default function UserManagement() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (profile?.role !== 'admin' && profile?.role !== 'manager') {
+  if (profile?.role !== 'admin') {
     return (
       <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-slate-200">
         <ShieldAlert className="mx-auto text-slate-300 mb-4" size={48} />
@@ -212,6 +236,7 @@ export default function UserManagement() {
                 <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Username</th>
                 <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">ID Number</th>
                 <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Role</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Department</th>
                 <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Password Status</th>
                 <th className="px-5 py-3.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Actions</th>
               </tr>
@@ -271,6 +296,8 @@ export default function UserManagement() {
                     </select>
                   </td>
 
+                  <td className="px-5 py-4"><span className="text-xs text-slate-600">{user.department || <span className="text-slate-300 italic">not set</span>}</span></td>
+
                   {/* Password Status */}
                   <td className="px-5 py-4">
                     {user.is_default_password || user.is_default_password === 1 ? (
@@ -294,7 +321,7 @@ export default function UserManagement() {
                       >
                         <Edit2 size={15} />
                       </button>
-                      {(profile?.role === 'admin' || profile?.role === 'manager') && (
+                      {profile?.role === 'admin' && (
                         <button
                           onClick={() => { setResetModal({ show: true, user }); setResetResult(null); }}
                           className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
@@ -303,7 +330,10 @@ export default function UserManagement() {
                           <RotateCcw size={15} />
                         </button>
                       )}
-                      {(profile?.uid !== (user.uid || user.id)) && (profile?.role === 'admin' || profile?.role === 'manager') && (
+                      {user.role === 'intern' && user.account_status !== 'archived' && (
+                        <button onClick={() => handleArchiveIntern(user)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all" title="Archive intern"><Archive size={15} /></button>
+                      )}
+                      {(profile?.uid !== (user.uid || user.id)) && user.role !== 'intern' && profile?.role === 'admin' && (
                         <button
                           onClick={() => { setUserToDelete(user); setIsDeleteModalOpen(true); }}
                           className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
@@ -318,7 +348,7 @@ export default function UserManagement() {
               ))}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center text-slate-400 italic">No users found</td>
+                  <td colSpan={7} className="px-5 py-10 text-center text-slate-400 italic">No users found</td>
                 </tr>
               )}
             </tbody>
@@ -331,12 +361,13 @@ export default function UserManagement() {
       {/* ==================== */}
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-md rounded-2xl shadow-xl p-8 max-h-[90vh] overflow-y-auto"
+              initial={{ opacity: 0, x: '100%' }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="bg-white w-full max-w-xl h-full shadow-2xl p-8 overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-slate-900">{editingUserId ? 'Edit Member Details' : 'Add New Member'}</h2>
@@ -428,11 +459,40 @@ export default function UserManagement() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Department / Team</label>
+                  <select required value={formData.department} onChange={(e) => setFormData({ ...formData, department: e.target.value })} className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none">
+                    <option value="">Select a department</option>
+                    {departments.map(department => <option key={department.id} value={department.name}>{department.name}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">School</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cebu Technological University"
+                      value={formData.school}
+                      onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Program / Degree</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. BS Information Technology"
+                      value={formData.program}
+                      onChange={(e) => setFormData({ ...formData, program: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Year Level</label>
                   <input
                     type="text"
-                    placeholder="e.g. Engineering, Marketing"
-                    value={formData.department}
-                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    placeholder="e.g. 3rd Year"
+                    value={formData.year_level}
+                    onChange={(e) => setFormData({ ...formData, year_level: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none"
                   />
                 </div>

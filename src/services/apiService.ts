@@ -136,6 +136,50 @@ export const api = {
     return res.json();
   },
 
+  getDepartments: async () => {
+    const res = await fetch('/api/departments');
+    if (!res.ok) throw new Error('Failed to fetch departments');
+    return res.json();
+  },
+  saveDepartment: async (department: any, performedBy: string) => {
+    const res = await fetch(department.id ? `/api/departments/${department.id}` : '/api/departments', {
+      method: department.id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...department, performed_by: performedBy }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to save department');
+    return res.json();
+  },
+  deleteDepartment: async (id: number, performedBy: string) => {
+    const res = await fetch(`/api/departments/${id}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ performed_by: performedBy }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to delete department');
+    return res.json();
+  },
+  getArchivedInterns: async () => {
+    const res = await fetch('/api/archived-interns');
+    if (!res.ok) throw new Error('Failed to fetch archived interns');
+    return res.json();
+  },
+  archiveIntern: async (uid: string, performedBy: string, reason: string) => {
+    const res = await fetch(`/api/users/${uid}/archive`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ performed_by: performedBy, reason }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to archive intern');
+    return res.json();
+  },
+  reactivateIntern: async (uid: string, performedBy: string) => {
+    const res = await fetch(`/api/users/${uid}/reactivate`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ performed_by: performedBy }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to reactivate intern');
+    return res.json();
+  },
+  submitFeedback: async (feedback: any) => {
+    const res = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(feedback) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to submit feedback');
+    return res.json();
+  },
+  getFeedback: async (performedBy: string) => {
+    const res = await fetch(`/api/feedback?performed_by=${encodeURIComponent(performedBy)}`);
+    if (!res.ok) throw new Error('Failed to fetch feedback');
+    return res.json();
+  },
+
   // Tasks
   getTasks: async (assignedTo?: string) => {
     const url = assignedTo ? `/api/tasks?assigned_to=${assignedTo}` : '/api/tasks';

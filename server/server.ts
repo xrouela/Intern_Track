@@ -163,7 +163,7 @@ async function startServer() {
     'uid','name','email','username','employee_id','password','is_default_password','role','department','photoURL',
     'school','program','year_level','emergency_contact_name','emergency_contact_relation','emergency_contact_phone',
     'emergency_contact_email','emergency_contact_location','skills','documents','start_date','end_date','required_hours',
-    'schedule_start','schedule_end','active_task','created_at','updated_at'
+    'schedule_start','schedule_end','active_task','account_status','archive_reason','archived_at','archived_by','archived_by_name','created_at','updated_at'
   ];
 
   app.get('/api/users', async (req, res) => {
@@ -214,6 +214,11 @@ async function startServer() {
       }
 
       if (existing) {
+        if (!String(userData.department || '').trim()) {
+          return res.status(400).json({ error: 'A department is required.' });
+        }
+        const selectedDepartment = await db('departments').where({ name: userData.department }).first();
+        if (!selectedDepartment) return res.status(400).json({ error: 'Select a valid department.' });
         // UPDATE existing user
         // Hash password only if explicitly provided (admin set a new one)
         if (userData.password) {
@@ -260,6 +265,11 @@ async function startServer() {
       if (!userData.name) {
         return res.status(400).json({ error: 'Missing required field: name' });
       }
+      if (!String(userData.department || '').trim()) {
+        return res.status(400).json({ error: 'A department is required.' });
+      }
+      const selectedDepartment = await db('departments').where({ name: userData.department }).first();
+      if (!selectedDepartment) return res.status(400).json({ error: 'Select a valid department.' });
 
       // Whitelist for insert as well
       const insertPayload: any = {};
@@ -298,6 +308,10 @@ async function startServer() {
 
       if (!user.password) {
         return res.status(401).json({ error: 'Account password is not set. Please contact an administrator.' });
+      }
+
+      if (user.account_status === 'archived') {
+        return res.status(403).json({ error: 'This intern account has been archived. Please contact an administrator.' });
       }
 
       const passwordMatch = await bcrypt.compare(password, user.password);
@@ -485,6 +499,109 @@ async function startServer() {
     }
   });
 
+  // DEPARTMENTS
+  app.get('/api/departments', async (_req, res) => {
+    try {
+      const departments = await db('departments').orderBy('name');
+      const counts = await db('users').select('department').count({ user_count: '*' }).groupBy('department');
+      const countByName = new Map(counts.map((row: any) => [row.department, Number(row.user_count)]));
+      res.json(departments.map((department: any) => ({ ...department, user_count: countByName.get(department.name) || 0 })));
+    } catch { res.status(500).json({ error: 'Failed to fetch departments' }); }
+  });
+
+  app.post('/api/departments', async (req, res) => {
+    try {
+      const { name, description, performed_by } = req.body;
+      const actor = await db('users').where({ uid: performed_by }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage departments.' });
+      if (!String(name || '').trim()) return res.status(400).json({ error: 'Department name is required.' });
+      const [id] = await db('departments').insert({ name: String(name).trim(), description: description || null });
+      await recordActivity({ action: 'DEPARTMENT_CREATED', performedBy: actor.uid, performedByName: actor.name, details: `Created department ${name}` });
+      res.json({ success: true, id });
+    } catch (err: any) { res.status(400).json({ error: err?.code === 'ER_DUP_ENTRY' ? 'A department with that name already exists.' : 'Failed to create department' }); }
+  });
+
+  app.patch('/api/departments/:id', async (req, res) => {
+    try {
+      const { name, description, performed_by } = req.body;
+      const actor = await db('users').where({ uid: performed_by }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage departments.' });
+      const department = await db('departments').where({ id: req.params.id }).first();
+      if (!department) return res.status(404).json({ error: 'Department not found.' });
+      const nextName = String(name || '').trim();
+      if (!nextName) return res.status(400).json({ error: 'Department name is required.' });
+      await db.transaction(async (trx: any) => {
+        await trx('departments').where({ id: department.id }).update({ name: nextName, description: description || null });
+        if (nextName !== department.name) await trx('users').where({ department: department.name }).update({ department: nextName });
+      });
+      await recordActivity({ action: 'DEPARTMENT_UPDATED', performedBy: actor.uid, performedByName: actor.name, details: `Updated department ${department.name}` });
+      res.json({ success: true });
+    } catch (err: any) { res.status(400).json({ error: err?.code === 'ER_DUP_ENTRY' ? 'A department with that name already exists.' : 'Failed to update department' }); }
+  });
+
+  app.delete('/api/departments/:id', async (req, res) => {
+    try {
+      const actor = await db('users').where({ uid: req.body.performed_by }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can manage departments.' });
+      const department = await db('departments').where({ id: req.params.id }).first();
+      if (!department) return res.status(404).json({ error: 'Department not found.' });
+      const assigned = await db('users').where({ department: department.name }).count({ count: '*' }).first();
+      if (Number((assigned as any)?.count || 0) > 0) return res.status(409).json({ error: 'Reassign all users before deleting this department.' });
+      await db('departments').where({ id: department.id }).del();
+      await recordActivity({ action: 'DEPARTMENT_DELETED', performedBy: actor.uid, performedByName: actor.name, details: `Deleted department ${department.name}` });
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: 'Failed to delete department' }); }
+  });
+
+  // INTERN ARCHIVE (retains all related records)
+  app.get('/api/archived-interns', async (_req, res) => {
+    try { res.json((await db('users').where({ role: 'intern', account_status: 'archived' }).orderBy('archived_at', 'desc')).map(stripPassword)); }
+    catch { res.status(500).json({ error: 'Failed to fetch archived interns' }); }
+  });
+
+  app.patch('/api/users/:uid/archive', async (req, res) => {
+    try {
+      const actor = await db('users').where({ uid: req.body.performed_by }).first();
+      const intern = await db('users').where({ uid: req.params.uid }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can archive interns.' });
+      if (!intern || intern.role !== 'intern') return res.status(400).json({ error: 'Only intern accounts can be archived.' });
+      if (!String(req.body.reason || '').trim()) return res.status(400).json({ error: 'An archive reason is required.' });
+      await db('users').where({ uid: intern.uid }).update({ account_status: 'archived', archive_reason: req.body.reason.trim(), archived_at: new Date(), archived_by: actor.uid, archived_by_name: actor.name });
+      await recordActivity({ action: 'INTERN_ARCHIVED', performedBy: actor.uid, performedByName: actor.name, targetUser: intern.uid, targetUserName: intern.name, details: req.body.reason.trim() });
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: 'Failed to archive intern' }); }
+  });
+
+  app.patch('/api/users/:uid/reactivate', async (req, res) => {
+    try {
+      const actor = await db('users').where({ uid: req.body.performed_by }).first();
+      const intern = await db('users').where({ uid: req.params.uid }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can reactivate interns.' });
+      if (!intern || intern.role !== 'intern') return res.status(400).json({ error: 'Only intern accounts can be reactivated.' });
+      await db('users').where({ uid: intern.uid }).update({ account_status: 'active' });
+      await recordActivity({ action: 'INTERN_REACTIVATED', performedBy: actor.uid, performedByName: actor.name, targetUser: intern.uid, targetUserName: intern.name });
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: 'Failed to reactivate intern' }); }
+  });
+
+  app.post('/api/feedback', async (req, res) => {
+    try {
+      const { category, reporter_uid, contact_details, description } = req.body;
+      if (!['bug', 'feature'].includes(category) || !String(description || '').trim()) return res.status(400).json({ error: 'Category and description are required.' });
+      const reporter = reporter_uid ? await db('users').where({ uid: reporter_uid }).first() : null;
+      await db('feedback').insert({ category, reporter_uid: reporter?.uid || null, reporter_name: reporter?.name || null, reporter_role: reporter?.role || null, contact_details: contact_details || null, description: description.trim() });
+      res.json({ success: true });
+    } catch { res.status(500).json({ error: 'Failed to submit feedback' }); }
+  });
+
+  app.get('/api/feedback', async (req, res) => {
+    try {
+      const actor = await db('users').where({ uid: String(req.query.performed_by || '') }).first();
+      if (!actor || actor.role !== 'admin') return res.status(403).json({ error: 'Only administrators can view feedback.' });
+      res.json(await db('feedback').orderBy('created_at', 'desc'));
+    } catch { res.status(500).json({ error: 'Failed to fetch feedback' }); }
+  });
+
   // DELETE USER
   app.delete('/api/users/:uid', async (req, res) => {
     try {
@@ -502,6 +619,11 @@ async function startServer() {
       const currentUser = await db('users').where({ uid: performed_by }).first();
       if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'manager')) {
         return res.status(403).json({ error: 'Unauthorized to delete users' });
+      }
+
+      const targetUser = await db('users').where({ uid: targetUid }).first();
+      if (targetUser?.role === 'intern') {
+        return res.status(400).json({ error: 'Intern records cannot be deleted. Archive the account instead.' });
       }
 
       await db.transaction(async (trx: any) => {

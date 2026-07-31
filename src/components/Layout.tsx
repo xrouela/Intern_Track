@@ -13,10 +13,14 @@ import {
   ListTodo,
   FileText,
   Inbox,
+  Table as TableIcon,
   ChevronDown,
   ChevronUp,
   HelpCircle,
-  CheckCheck
+  CheckCheck,
+  Building2,
+  Archive,
+  Info
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -133,15 +137,24 @@ export default function Layout() {
       roles: ['admin', 'manager'],
       items: [
         { name: 'User Management', path: '/users', icon: Users, roles: ['admin'] },
+        { name: 'Department', path: '/departments', icon: Building2, roles: ['admin'] },
         { name: 'Time Logs', path: '/logs', icon: ListTodo, roles: ['admin', 'manager'] },
+        { name: 'Task Work Logs', path: '/task-work-logs', icon: TableIcon, roles: ['admin', 'manager'] },
         { name: 'Requests Review', path: '/admin-requests', icon: Inbox, roles: ['admin', 'manager'] },
+        { name: 'Archived Interns', path: '/archived-interns', icon: Archive, roles: ['admin'] },
       ]
     },
     {
       label: 'Reports',
       roles: ['admin', 'manager'],
       items: [
-        { name: 'Shift Reports', path: '/reports', icon: BarChart3, roles: ['admin', 'manager'] },
+        { name: 'Attendance Reports', path: '/reports', icon: BarChart3, roles: ['admin', 'manager'] },
+      ]
+    },
+    {
+      label: 'System',
+      items: [
+        { name: 'About', path: '/about', icon: Info, roles: ['admin', 'manager', 'intern'] },
       ]
     }
   ];

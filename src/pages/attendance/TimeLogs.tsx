@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../../services/apiService';
 import { useAuth } from '../../context/AuthContext';
-import { Plus, Download, FileText, Table, Clock, Calendar, MessageSquare, Trash2, X, CheckSquare, Upload, AlertCircle, ArrowUpDown } from 'lucide-react';
+import { Plus, FileText, Table, Clock, Calendar, MessageSquare, Trash2, X, CheckSquare, AlertCircle, ArrowUpDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, differenceInMinutes, parse, isSameDay } from 'date-fns';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import Papa from 'papaparse';
 import { calculateAttendance } from '../../utils/attendanceUtils';
 import { parseUTCDate, formatDisplayTime } from '../../utils/dateUtils';
 
 export default function TimeLogs() {
+  const location = useLocation();
+  const isTaskWorkView = location.pathname === '/task-work-logs';
   const { profile } = useAuth();
   const [logs, setLogs] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
   const [isApprovalModalOpen, setIsApprovalModalOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<any>(null);
-  const [importing, setImporting] = useState(false);
-  const [importResults, setImportResults] = useState<{success: number, errors: string[]} | null>(null);
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [approvalComments, setApprovalComments] = useState('');
   const [filterIntern, setFilterIntern] = useState('all');
@@ -191,92 +188,6 @@ export default function TimeLogs() {
     setEditingLog(log);
     setIsModalOpen(true);
   };
-
-  const exportCSV = (type: 'all' | 'tasks' | 'shifts' = 'all') => {
-    let csvData: any[] = [];
-    
-    if (type === 'all' || type === 'tasks') {
-      csvData.push(...logs.map(l => ({
-        Type: 'Task Work',
-        Date: l.date,
-        User: l.user_name,
-        Task: l.task_name,
-        'Start Time': l.start_time,
-        'End Time': l.end_time,
-        'Rendered Hours': (l.rendered_hours || 0).toFixed(2),
-        Status: l.status || 'pending',
-        Description: l.description
-      })));
-    }
-    
-    if (type === 'all' || type === 'shifts') {
-      csvData.push(...shifts.map(s => ({
-        Type: 'Shift Session',
-        Date: s.clock_in ? format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') : 'N/A',
-        User: s.user_name,
-        Task: 'Shift Presence',
-        'Start Time': s.clock_in ? formatDisplayTime(parseUTCDate(s.clock_in)) : 'N/A',
-        'End Time': s.clock_out ? formatDisplayTime(parseUTCDate(s.clock_out)) : 'Active',
-        'Rendered Hours': (s.total_hours || 0).toFixed(2),
-        Status: s.status,
-        Description: `Shift recorded through clock in/out`
-      })));
-    }
-
-    const csv = Papa.unparse(csvData);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    const filename = type === 'all' ? 'combined' : (type === 'tasks' ? 'task_work' : 'shift_attendance');
-    link.download = `${filename}_logs_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    link.click();
-  };
-
-
-  const exportPDF = (type: 'all' | 'tasks' | 'shifts' = 'all') => {
-    const doc = new jsPDF() as any;
-    const title = type === 'all' ? 'Combined Time & Shift Report' : (type === 'tasks' ? 'Task Work Report' : 'Shift Attendance Report');
-    doc.text(`NexTrack - ${title}`, 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 22);
-
-    const tableData: any[] = [];
-    
-    if (type === 'all' || type === 'tasks') {
-      tableData.push(...logs.map(l => [
-        'Task',
-        l.date,
-        l.user_name,
-        l.task_name,
-        `${l.start_time} - ${l.end_time}`,
-        (l.rendered_hours || 0).toFixed(2),
-        l.status || 'pending'
-      ]));
-    }
-    
-    if (type === 'all' || type === 'shifts') {
-      tableData.push(...shifts.map(s => [
-        'Shift',
-        s.clock_in ? format(parseUTCDate(s.clock_in), 'yyyy-MM-dd') : 'N/A',
-        s.user_name,
-        'Active Presence',
-        `${s.clock_in ? format(parseUTCDate(s.clock_in), 'HH:mm') : 'N/A'} - ${s.clock_out ? format(parseUTCDate(s.clock_out), 'HH:mm') : 'Active'}`,
-        (s.total_hours || 0).toFixed(2),
-        s.status || 'completed'
-      ]));
-    }
-
-    autoTable(doc, {
-      startY: 30,
-      head: [['Type', 'Date', 'Intern', 'Task/Activity', 'Shift Time', 'Hours', 'Status']],
-      body: tableData,
-      headStyles: { fillColor: type === 'tasks' ? [79, 70, 229] : (type === 'shifts' ? [16, 185, 129] : [37, 99, 235]) }
-    });
-
-    const filename = type === 'all' ? 'combined' : (type === 'tasks' ? 'task_work' : 'shift_attendance');
-    doc.save(`${filename}_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
-  };
-
   const handleApproval = async (status: 'approved' | 'rejected') => {
     if (!selectedLog || !profile) return;
     try {
@@ -317,152 +228,6 @@ export default function TimeLogs() {
       console.error('Failed to delete log:', err);
     }
   };
-
-  const handleBulkImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImporting(true);
-    setImportResults(null);
-    const errors: string[] = [];
-    let successCount = 0;
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (h: string) => h.trim().toUpperCase(),
-      complete: async (results: Papa.ParseResult<Record<string, unknown>>) => {
-        const data = results.data as Array<Record<string, unknown>>;
-        
-        for (let i = 0; i < data.length; i++) {
-          const row = data[i];
-          const getVal = (row: any, keys: string[]) => {
-            for (const k of keys) {
-              const upperK = k.toUpperCase();
-              if (row[upperK] !== undefined) return row[upperK].toString().trim();
-            }
-            return '';
-          };
-
-          const email = getVal(row, ['Email', 'EmailAddress']);
-          const rowDate = getVal(row, ['DATE', 'Date']);
-          const timeInStr = getVal(row, ['IN', 'TimeIn', 'ClockIn']);
-          const timeOutStr = getVal(row, ['OUT', 'TimeOut', 'ClockOut']);
-
-          if (!email || !rowDate) {
-            errors.push(`Row ${i + 1}: Missing required fields (Email, DATE)`);
-            continue;
-          }
-
-          const checkNonWorkingValue = (val: string) => {
-            const s = val.toUpperCase().trim();
-            return s === 'ABSNT' || s === 'ABSENT' || s === 'RD' || s === 'REST DAY';
-          };
-
-          if (checkNonWorkingValue(timeInStr) || checkNonWorkingValue(timeOutStr)) continue;
-
-          if (!timeInStr || !timeOutStr) {
-             errors.push(`Row ${i + 1}: Flagged as Incomplete Log (Missing In/Out)`);
-             continue;
-          }
-
-          const targetUser = interns.find(u => u.email?.toLowerCase() === email.toLowerCase());
-          if (!targetUser) {
-            errors.push(`Row ${i + 1}: No intern found with email ${email}`);
-            continue;
-          }
-
-          try {
-            const parseTime = (t: string, baseDate: Date) => {
-              const match = t.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
-              if (match) {
-                let hours = parseInt(match[1]);
-                const mins = parseInt(match[2]);
-                const ampm = match[3].toUpperCase();
-                if (ampm === 'PM' && hours < 12) hours += 12;
-                if (ampm === 'AM' && hours === 12) hours = 0;
-                const d = new Date(baseDate);
-                d.setHours(hours, mins, 0, 0);
-                return d;
-              }
-              const match24 = t.match(/^(\d{1,2}):(\d{2})$/);
-              if (match24) {
-                const hours = parseInt(match24[1]);
-                const mins = parseInt(match24[2]);
-                const d = new Date(baseDate);
-                d.setHours(hours, mins, 0, 0);
-                return d;
-              }
-              return null;
-            };
-
-            let parsedBaseDate = new Date(rowDate);
-            if (isNaN(parsedBaseDate.getTime())) {
-                const d = rowDate.split(/[-/]/);
-                if (d.length === 3) parsedBaseDate = new Date(rowDate.replace(/-/g, '/'));
-            }
-
-            if (isNaN(parsedBaseDate.getTime())) {
-              errors.push(`Row ${i + 1}: Could not parse date format "${rowDate}"`);
-              continue;
-            }
-
-            const clockIn = parseTime(timeInStr, parsedBaseDate);
-            const clockOut = parseTime(timeOutStr, parsedBaseDate);
-
-            if (!clockIn || !clockOut) {
-              errors.push(`Row ${i + 1}: Invalid time format "${timeInStr}" or "${timeOutStr}"`);
-              continue;
-            }
-
-            let finalClockOut = new Date(clockOut);
-            if (finalClockOut < clockIn) finalClockOut.setDate(finalClockOut.getDate() + 1);
-
-            const metrics = calculateAttendance(clockIn, finalClockOut);
-
-            await api.createShift({
-              user_id: targetUser.uid,
-              user_name: targetUser.name,
-              clock_in: clockIn.toISOString(),
-              clock_out: finalClockOut.toISOString(),
-              status: 'completed',
-              ...metrics,
-              is_overtime: metrics.overtime_hours > 0,
-              manual_entry: 1,
-              description: 'Bulk Imported',
-              source: 'Bulk Entry',
-              audit_label: 'Bulk Added by Admin',
-              imported_by_id: profile?.uid,
-              imported_by_name: profile?.name
-            });
-            successCount++;
-          } catch (err: any) {
-            errors.push(`Row ${i + 1}: ${err?.message || 'Error processing record'}`);
-          }
-        }
-
-        setImportResults({ success: successCount, errors });
-        setImporting(false);
-        fetchData();
-      }
-    });
-  };
-
-  const downloadSampleCSV = () => {
-    const data = [
-      { Email: 'ryleesestoso@gmail.com', DATE: '23-Jan-26', IN: '1:01AM', OUT: '6:00AM' },
-      { Email: 'ryleesestoso@gmail.com', DATE: '24-Jan-26', IN: '', OUT: 'ABSENT' },
-      { Email: 'ryleesestoso@gmail.com', DATE: '26-Jan-26', IN: '9:05PM', OUT: '6:00AM' },
-      { Email: 'ryleesestoso@gmail.com', DATE: '2/1/2026', IN: '', OUT: 'RD' }
-    ];
-    const csv = Papa.unparse(data);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'intern_attendance_sample.csv';
-    link.click();
-  };
-
   const filteredLogs = filterIntern === 'all' 
     ? logs 
     : logs.filter(l => l.user_id === filterIntern);
@@ -491,51 +256,19 @@ export default function TimeLogs() {
     return d ? format(d, 'yyyy') : null;
   }).filter(Boolean))).sort((a, b) => ((b as string) || '').localeCompare((a as string) || ''));
 
+  const pageTitle = isTaskWorkView ? 'Task Work Logs' : 'Time Logs';
+  const pageDescription = isTaskWorkView
+    ? 'Track and review task work entries separately from shift attendance.'
+    : 'Track and review work sessions and shift attendance.';
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Attendance & Logs</h1>
-          <p className="text-slate-500">Track and review work sessions and shift attendance.</p>
+          <h1 className="text-2xl font-bold text-slate-900">{pageTitle}</h1>
+          <p className="text-slate-500">{pageDescription}</p>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          {(profile?.role === 'admin' || profile?.role === 'manager') && (
-            <button 
-              onClick={() => setIsBulkImportModalOpen(true)}
-              className="flex items-center gap-2 bg-indigo-50 text-indigo-600 border border-indigo-100 px-4 py-2 rounded-xl font-medium hover:bg-indigo-100 transition"
-            >
-              <Upload size={18} /> Bulk Import
-            </button>
-          )}
-          <div className="relative group">
-            <button className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl font-medium hover:bg-slate-50 transition">
-              <Download size={18} /> Export Report
-            </button>
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-100 rounded-xl shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 p-2 space-y-1">
-              <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">CSV Format</div>
-              <button onClick={() => exportCSV('all')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition-colors flex items-center gap-2">
-                <Table size={14} /> Combined Record
-              </button>
-              <button onClick={() => exportCSV('tasks')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition-colors flex items-center gap-2">
-                <CheckSquare size={14} /> Task Work Only
-              </button>
-              <button onClick={() => exportCSV('shifts')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg transition-colors flex items-center gap-2">
-                <Clock size={14} /> Attendance Only
-              </button>
-              
-              <div className="border-t border-slate-50 my-1" />
-              <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">PDF Format</div>
-              <button onClick={() => exportPDF('all')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors flex items-center gap-2">
-                <FileText size={14} /> Combined Record
-              </button>
-              <button onClick={() => exportPDF('tasks')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors flex items-center gap-2">
-                <CheckSquare size={14} /> Task Work Only
-              </button>
-              <button onClick={() => exportPDF('shifts')} className="w-full text-left px-3 py-2 text-xs font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors flex items-center gap-2">
-                <Clock size={14} /> Attendance Only
-              </button>
-            </div>
-          </div>
           {profile?.role === 'intern' && (
             <button
               onClick={() => setIsModalOpen(true)}
@@ -613,16 +346,18 @@ export default function TimeLogs() {
         </div>
       )}
 
-      {/* Logs Table */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <MessageSquare size={20} className="text-indigo-500" />
-          Task Work Logs
-        </h3>
-        <div className="bg-white rounded-[12px] border border-border-theme overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead className="bg-[#fdfdfd] border-b border-border-theme">
+      {isTaskWorkView && (
+        <>
+          {/* Logs Table */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <MessageSquare size={20} className="text-indigo-500" />
+              Task Work Logs
+            </h3>
+            <div className="bg-white rounded-[12px] border border-border-theme overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead className="bg-[#fdfdfd] border-b border-border-theme">
                 <tr>
                   <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Date</th>
                   <th className="px-5 py-3 text-[12px] font-semibold text-text-muted">Intern</th>
@@ -711,9 +446,13 @@ export default function TimeLogs() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
-      {/* Shifts History Table */}
-      <div className="space-y-4">
+      {!isTaskWorkView && (
+        <>
+          {/* Shifts History Table */}
+          <div className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <Clock size={20} className="text-emerald-500" />
@@ -861,6 +600,8 @@ export default function TimeLogs() {
           </div>
         </div>
       </div>
+    </>
+      )}
 
       {/* Modal */}
       <AnimatePresence>
@@ -1004,88 +745,6 @@ export default function TimeLogs() {
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-      {/* Bulk Import Modal */}
-      <AnimatePresence>
-        {isBulkImportModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white w-full max-w-md rounded-2xl shadow-xl p-8"
-            >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Bulk Import Shifts</h2>
-                <button onClick={() => { setIsBulkImportModalOpen(false); setImportResults(null); }} className="text-slate-400 hover:text-slate-600"><X /></button>
-              </div>
-
-              <div className="space-y-6">
-                <div className="bg-slate-50 p-4 rounded-xl border border-dashed border-slate-200 text-center">
-                  <p className="text-sm text-slate-600 mb-3">Upload a CSV file with intern shift records.</p>
-                  <button 
-                    onClick={downloadSampleCSV}
-                    className="text-[11px] font-bold text-indigo-600 hover:underline flex items-center gap-1 mx-auto"
-                  >
-                    <Download size={12} /> Download Sample CSV
-                  </button>
-                </div>
-
-                {!importResults ? (
-                  <div className="relative group cursor-pointer">
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleBulkImport}
-                      disabled={importing}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                    />
-                    <div className="border-2 border-dashed border-slate-200 group-hover:border-indigo-400 rounded-2xl p-8 text-center transition-colors">
-                      {importing ? (
-                        <div className="space-y-3">
-                          <Clock className="mx-auto text-indigo-500 animate-spin" size={32} />
-                          <p className="text-sm font-bold text-slate-700">Processing records...</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <Upload className="mx-auto text-slate-400" size={32} />
-                          <p className="text-sm font-bold text-slate-700">Click or drag and drop CSV</p>
-                          <p className="text-[10px] text-slate-400 font-medium">Headers: Email, Date, TimeIn, TimeOut</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className={`p-4 rounded-xl flex items-center gap-3 ${importResults.errors.length === 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
-                      {importResults.errors.length === 0 ? <CheckSquare size={20} /> : <AlertCircle size={20} />}
-                      <div>
-                        <p className="font-bold">Import Complete</p>
-                        <p className="text-xs">{importResults.success} records successfully imported.</p>
-                      </div>
-                    </div>
-
-                    {importResults.errors.length > 0 && (
-                      <div className="max-h-32 overflow-y-auto p-3 bg-red-50 rounded-lg border border-red-100 space-y-1">
-                        <p className="text-[10px] font-bold text-red-600 uppercase">Errors Found:</p>
-                        {importResults.errors.map((err, i) => (
-                          <p key={i} className="text-[10px] text-red-500">• {err}</p>
-                        ))}
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => { setIsBulkImportModalOpen(false); setImportResults(null); }}
-                      className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition"
-                    >
-                      Close
-                    </button>
-                  </div>
-                )}
-              </div>
             </motion.div>
           </div>
         )}

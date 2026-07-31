@@ -20,6 +20,10 @@ import Requests from './pages/Requests';
 import AdminRequests from './pages/admin/AdminRequests';
 import AttendanceReport from './pages/reports/AttendanceReport';
 import TaskReport from './pages/reports/TaskReport';
+import Departments from './pages/admin/Departments';
+import ArchivedInterns from './pages/admin/ArchivedInterns';
+import About from './pages/About';
+import PrivacyNotice from './pages/PrivacyNotice';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, profile, loading } = useAuth();
@@ -68,6 +72,8 @@ export default function App() {
               <Route path="task-report" element={<TaskReport />} />
               <Route path="requests" element={<Requests />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="about" element={<About />} />
+              <Route path="privacy" element={<PrivacyNotice />} />
               <Route path="admin" element={<Navigate to="/" replace />} />
               <Route
                 path="users"
@@ -77,6 +83,8 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route path="departments" element={<ProtectedRoute roles={['admin']}><Departments /></ProtectedRoute>} />
+              <Route path="archived-interns" element={<ProtectedRoute roles={['admin']}><ArchivedInterns /></ProtectedRoute>} />
               <Route
                 path="alerts"
                 element={
@@ -90,6 +98,14 @@ export default function App() {
                 element={
                   <ProtectedRoute roles={['admin', 'manager']}>
                     <AdminRequests />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="task-work-logs"
+                element={
+                  <ProtectedRoute roles={['admin', 'manager']}>
+                    <TimeLogs />
                   </ProtectedRoute>
                 }
               />
